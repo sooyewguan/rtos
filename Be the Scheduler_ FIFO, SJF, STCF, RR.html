@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Be the Scheduler: FIFO, SJF, STCF, RR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E9EEF2; --surface:#F7F9FB; --ink:#18324A; --muted:#55697C; --grid:#C5D1DB; --sheet:#FFFFFF;
+  --jA:#2E6DB4; --jB:#C98A12; --jC:#2F8A5B; --jD:#8A4FB5; --jE:#1E8C8C; --bad:#B8263A; --good:#2F8A5B; --onjob:#fff;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --paper:#13202C; --surface:#1B2B3A; --sheet:#20334A; --ink:#E3EAF0; --muted:#9FB2C3; --grid:#2E4356;
+  --jA:#5B97DC; --jB:#E2A93A; --jC:#4FB37F; --jD:#B08AD8; --jE:#4DBDBD; --bad:#E2576A; --good:#4FB37F; --onjob:#0E1822; } }
+:root[data-theme="dark"]{ --paper:#13202C; --surface:#1B2B3A; --sheet:#20334A; --ink:#E3EAF0; --muted:#9FB2C3; --grid:#2E4356;
+  --jA:#5B97DC; --jB:#E2A93A; --jC:#4FB37F; --jD:#B08AD8; --jE:#4DBDBD; --bad:#E2576A; --good:#4FB37F; --onjob:#0E1822; }
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Archivo",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:16px;line-height:1.5;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:24px 24px;background-attachment:fixed}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace}
+.wrap{max-width:1240px;margin:0 auto;padding:20px 16px 48px}
+header h1{font-stretch:118%;font-weight:800;font-size:clamp(28px,5vw,44px);line-height:1.05;margin:4px 0 4px}
+header p{margin:0 0 14px;color:var(--muted);max-width:70ch}
+.levels{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:14px}
+.lv{flex:0 0 auto;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);padding:7px 12px;border-radius:4px;font:inherit;font-size:14px;cursor:pointer;text-align:left}
+.lv[aria-current="true"]{background:var(--ink);color:var(--surface)}
+.lv small{display:block;font-size:12px;opacity:.8}
+.layout{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,7fr);gap:16px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:1fr}}
+.sheet{background:var(--sheet);border:1.5px solid var(--ink);border-radius:4px;padding:18px;position:sticky;top:calc(12px + env(safe-area-inset-top,0px))}
+@media (max-width:900px){.sheet{position:static}}
+.sheet h2{font-stretch:112%;font-size:22px;margin:0 0 6px}
+.sheet .qno{font-size:13px;color:var(--muted);margin:0}
+.sheet p{margin:8px 0}
+.goal{padding:8px 10px;border-left:4px solid var(--jA);font-size:15px}
+.src{font-size:13px;color:var(--muted)}
+.work{background:var(--surface);border:1.5px solid var(--ink);border-radius:4px;padding:18px;min-width:0}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);border:1.5px solid var(--ink);border-radius:4px;overflow:hidden;margin-bottom:16px}
+.steps span{padding:8px 10px;font-size:14px;border-right:1.5px solid var(--ink);color:var(--muted)}
+.steps span:last-child{border-right:none}
+.steps span[aria-current="step"]{background:var(--ink);color:var(--surface);font-weight:600}
+.steps span.donestep{color:var(--ink)}
+.work h3{font-stretch:110%;font-size:18px;margin:18px 0 6px}
+.work h3:first-of-type{margin-top:0}
+.btn{font:inherit;font-size:14px;border:1.5px solid var(--ink);background:transparent;color:var(--ink);padding:6px 12px;border-radius:4px;cursor:pointer}
+.btn[aria-pressed="true"],.btn.primary{background:var(--ink);color:var(--surface)}
+.btn:disabled,input:disabled,select:disabled{opacity:.5;cursor:not-allowed}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--jA);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--grid);white-space:nowrap}
+th{font-weight:600;color:var(--muted)}
+.tablewrap{overflow-x:auto;margin-top:8px}
+.chip{display:inline-block;min-width:28px;text-align:center;font-weight:700;border-radius:3px;padding:0 6px;color:var(--onjob)}
+.clock{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.clock .t{font-size:clamp(38px,6vw,58px);font-weight:600;line-height:1}
+.clock .lbl{color:var(--muted);font-size:14px}
+.event{font-size:15px;margin:6px 0 0;min-height:24px}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.run{font:inherit;font-weight:700;font-size:16px;border:none;border-radius:4px;padding:10px 14px;cursor:pointer;color:var(--onjob);min-width:96px;line-height:1.25}
+.run small{font-weight:400;font-size:12px}
+.run:disabled{opacity:.25;cursor:not-allowed}
+.queue{display:flex;gap:4px;align-items:center;flex-wrap:wrap;min-height:34px;margin-top:6px;padding:6px;border:1.5px dashed var(--grid);border-radius:4px}
+.queue .chip{padding:5px 10px}
+.gantt{overflow-x:auto;margin-top:10px;padding-bottom:4px}
+.glabel{font-size:13px;color:var(--muted);margin-top:10px}
+.track{display:grid}
+.cell{height:40px;border:1px dashed var(--grid);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--onjob);font-size:13px}
+.cell.job{border:none;box-shadow:inset -1px 0 0 var(--sheet)}
+.cell.badrun{outline:3px solid var(--bad);outline-offset:-3px}
+.axis,.arrivals{display:grid;font-size:11px}
+.axis{color:var(--muted);margin-top:2px}
+.axis span{border-left:1px solid var(--grid);padding-left:2px;white-space:nowrap}
+.arrivals{min-height:16px}
+.arrivals span{border-left:2px solid var(--ink);padding-left:3px;white-space:nowrap}
+.moves{margin:8px 0 0;padding-left:20px;font-size:14px;max-height:180px;overflow:auto}
+.answers{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin:8px 0}
+.answers label{display:flex;flex-direction:column;font-size:14px;gap:4px}
+.answers input,.answers select{font:inherit;font-size:16px;padding:6px 8px;border:1.5px solid var(--ink);border-radius:4px;background:var(--sheet);color:var(--ink)}
+.answers input{width:140px}
+.hint{font-size:13px;color:var(--muted);margin:6px 0}
+.err{color:var(--bad);font-weight:600;min-height:22px;margin:6px 0}
+.stars{font-size:26px;letter-spacing:4px;margin:0}
+.verdict{list-style:none;padding:0;margin:8px 0}
+.verdict li{padding:6px 0 6px 28px;position:relative;border-bottom:1px solid var(--grid)}
+.verdict li::before{position:absolute;left:4px;font-weight:700}
+.verdict li.ok::before{content:"✓";color:var(--good)} .verdict li.no::before{content:"✗";color:var(--bad)}
+.mistakes{margin:6px 0;padding-left:20px}
+.mistakes li{margin-bottom:8px}
+.calc{font-size:13px;line-height:1.7}
+.qs{display:grid;gap:10px;margin-top:10px}
+.qs fieldset{border:1.5px solid var(--grid);border-radius:4px;padding:8px 12px}
+.qs legend{font-weight:600;padding:0 4px}
+.qs label{margin-right:14px;white-space:nowrap}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Be the scheduler</h1>
+  <p>You are the OS. Build the schedule yourself, answer the question, then see what you got wrong and why. No hints until you submit.</p>
+</header>
+<nav class="levels" id="levels" aria-label="Levels"></nav>
+<div class="layout">
+  <aside class="sheet" id="sheet" aria-label="Question"></aside>
+  <main class="work" id="work"></main>
+</div>
+</div>
+<script>
+// Event-driven engine. Decisions at timer ticks (every TICK s), job arrivals, job completion.
+// RR: quantum = Q s; arrival does not preempt; after quantum, longest-waiting job runs next.
+const TICK=10;
+function newState(level){
+  return {level,t:0,last:null,qLeft:0,sched:[],violations:0,
+    jobs:level.jobs.map(([n,arr,len],i)=>({n,i,arr,len,rem:len,first:null,done:null,since:arr}))};
+}
+function ready(s){return s.jobs.filter(j=>j.arr<=s.t&&j.rem>0);}
+function allDone(s){return s.jobs.every(j=>j.rem===0);}
+function names(a){return a.map(j=>j.n).join(" or ");}
+function valid(s){
+  const r=ready(s); if(!r.length) return {set:[],why:""};
+  const p=s.level.policy, last=s.last!==null?s.jobs[s.last]:null, running=last&&last.rem>0;
+  if((p==="FIFO"||p==="SJF")&&running)
+    return {set:[last.i],why:`${p} never preempts. ${last.n} has started, so it keeps the CPU until it finishes.`};
+  if(p==="FIFO"){const m=Math.min(...r.map(j=>j.arr)),a=r.filter(j=>j.arr===m);
+    return {set:a.map(j=>j.i),why:`CPU is free. FIFO picks the earliest arrival: ${names(a)} (arrived at ${m} s). Length does not matter.`};}
+  if(p==="SJF"){const m=Math.min(...r.map(j=>j.len)),a=r.filter(j=>j.len===m);
+    return {set:a.map(j=>j.i),why:`CPU is free. SJF picks the shortest job: ${names(a)} (${m} s long). Arrival order does not matter.`};}
+  if(p==="STCF"){const m=Math.min(...r.map(j=>j.rem)),a=r.filter(j=>j.rem===m);
+    return {set:a.map(j=>j.i),why:`STCF picks the least time left: ${names(a)} (${m} s left). Compare time left, not total length.`};}
+  if(p==="RR"){
+    if(running&&s.qLeft>0) return {set:[last.i],why:`${last.n} still has ${s.qLeft} s of its ${s.level.q} s slice. RR does not preempt when a job arrives.`};
+    if(r.length===1) return {set:[r[0].i],why:`Only ${r[0].n} is ready, so it gets a new slice.`};
+    const c=r.filter(j=>j.i!==s.last), m=Math.min(...c.map(j=>j.since)), a=c.filter(j=>j.since===m);
+    return {set:a.map(j=>j.i),why:`Slice over. RR gives the CPU to the job waiting longest: ${names(a)} (waiting since ${m} s). ${last&&last.rem>0?last.n+" goes to the back of the queue.":""}`};}
+}
+function nextArrival(s){const f=s.jobs.filter(j=>j.arr>s.t).map(j=>j.arr);return f.length?Math.min(...f):Infinity;}
+function step(s,choice){
+  const v=valid(s), j=s.jobs[choice], ok=v.set.includes(choice); if(!ok) s.violations++;
+  const p=s.level.policy;
+  if(p==="RR"){ if(!(choice===s.last&&s.qLeft>0&&j.rem>0)) s.qLeft=s.level.q; }
+  const limit = p==="RR" ? s.qLeft : (Math.floor(s.t/TICK)+1)*TICK - s.t;
+  const d=Math.min(j.rem, limit, nextArrival(s)-s.t);
+  s.sched.push({job:choice,start:s.t,end:s.t+d,ok,set:v.set,why:v.why});
+  if(j.first===null) j.first=s.t;
+  s.t+=d; j.rem-=d; j.since=s.t; if(j.rem===0) j.done=s.t; s.last=choice; if(p==="RR") s.qLeft-=d;
+  while(!allDone(s)&&!ready(s).length){const nx=nextArrival(s); s.sched.push({job:null,start:s.t,end:nx,ok:true}); s.t=nx;}
+  return {ok,v};
+}
+function metrics(s){const per=s.jobs.map(j=>({n:j.n,tat:j.done-j.arr,resp:j.first-j.arr}));
+  const avg=k=>per.reduce((a,x)=>a+x[k],0)/per.length; return {per,tat:avg("tat"),resp:avg("resp")};}
+function replay(level,picks){const s=newState(level);picks.forEach(p=>step(s,p));return s;}
+function allValid(level,cap=200){const out=[];(function dfs(pk){if(out.length>cap)return;const s=replay(level,pk);
+  if(allDone(s)){out.push(s);return;} for(const c of valid(s).set) dfs([...pk,c]);})([]);return out;}
+function policyRange(level){const ss=allValid(level),ms=ss.map(metrics),r=k=>[Math.min(...ms.map(m=>m[k])),Math.max(...ms.map(m=>m[k]))];
+  return {count:ss.length,tat:r("tat"),resp:r("resp"),one:ss[0]};}
+
+
+// Single-queue RR. Convention flags: tie (same arrival) -> lower process number first.
+// newFirst=true: a process arriving at the instant a slice ends joins the queue before the preempted process.
+function rrSim(procs,q,newFirst=true){
+  const P=procs.map((p,i)=>({...p,i,rem:p.burst,first:null,done:null}));
+  const byArr=[...P].sort((a,b)=>a.arr-b.arr||a.num-b.num);
+  let t=0,queue=[],k=0,slices=[],events=[];
+  const take=(cond)=>{const add=[];while(k<byArr.length&&cond(byArr[k].arr)){add.push(byArr[k]);k++;}return add;};
+  // initial
+  t=byArr[0].arr; let pending=take(a=>a<=t); events.push({t,order:pending.map(p=>p.i)}); queue.push(...pending);
+  while(P.some(p=>p.rem>0)){
+    if(!queue.length){ t=byArr[k].arr; const add=take(a=>a<=t); events.push({t,order:add.map(p=>p.i)}); queue.push(...add); continue; }
+    const cur=queue.shift(); const d=Math.min(q,cur.rem); if(cur.first===null)cur.first=t;
+    slices.push({i:cur.i,start:t,end:t+d}); const e=t+d; cur.rem-=d; if(cur.rem===0)cur.done=e;
+    const mid=take(a=>a<e), at=take(a=>a===e); let order;
+    if(cur.rem>0) order=newFirst?[...mid,...at,cur]:[...mid,cur,...at]; else order=[...mid,...at];
+    events.push({t:e,order:order.map(p=>p.i),pre:cur.rem>0?cur.i:null}); queue.push(...order); t=e;
+  }
+  const per=P.map(p=>({name:p.name,tat:p.done-p.arr,wait:p.done-p.arr-p.burst,resp:p.first-p.arr,done:p.done,met:p.done-p.arr<=p.dl}));
+  const avg=k=>per.reduce((a,x)=>a+x[k],0)/per.length;
+  return {slices,events,per,wait:avg("wait"),tat:avg("tat"),resp:avg("resp")};
+}
+
+
+const W=[["A",0,30],["B",5,30],["C",15,10],["D",35,10]];
+const POOL=[[["A",0,30],["B",5,30],["C",15,10],["D",35,10]],[["A",0,30],["B",5,30],["C",25,10],["D",55,10]],[["A",0,30],["B",5,10],["C",15,30],["D",25,20]],[["A",0,30],["B",5,20],["C",15,30],["D",45,10]],[["A",0,30],["B",15,20],["C",25,30],["D",35,10]],[["A",0,30],["B",5,30],["C",15,10],["D",35,20]],[["A",0,30],["B",5,30],["C",15,10],["D",55,20]],[["A",0,30],["B",5,30],["C",15,20],["D",35,10]],[["A",0,30],["B",5,30],["C",25,20],["D",35,10]],[["A",0,30],["B",15,30],["C",25,20],["D",35,10]],[["A",0,30],["B",5,40],["C",15,10],["D",35,10]],[["A",0,30],["B",5,40],["C",25,10],["D",55,10]],[["A",0,40],["B",5,10],["C",25,30],["D",45,10]],[["A",0,40],["B",15,30],["C",25,10],["D",45,10]],[["A",0,30],["B",5,10],["C",15,40],["D",25,20]],[["A",0,30],["B",5,20],["C",15,30],["D",35,20]],[["A",0,30],["B",5,20],["C",15,30],["D",45,20]],[["A",0,30],["B",5,20],["C",25,30],["D",35,20]],[["A",0,30],["B",5,20],["C",15,40],["D",45,10]],[["A",0,30],["B",15,20],["C",25,40],["D",35,10]],[["A",0,30],["B",5,40],["C",15,10],["D",35,20]],[["A",0,30],["B",5,40],["C",25,10],["D",55,20]],[["A",0,30],["B",5,40],["C",15,20],["D",35,10]],[["A",0,30],["B",5,40],["C",15,20],["D",55,10]],[["A",0,30],["B",5,40],["C",25,20],["D",35,10]],[["A",0,30],["B",5,40],["C",25,20],["D",55,10]],[["A",0,30],["B",15,40],["C",25,20],["D",35,10]],[["A",0,40],["B",5,10],["C",25,30],["D",35,20]],[["A",0,40],["B",5,10],["C",25,30],["D",45,20]],[["A",0,40],["B",15,10],["C",25,30],["D",35,20]],[["A",0,40],["B",5,10],["C",15,40],["D",45,10]],[["A",0,40],["B",5,10],["C",25,40],["D",45,10]],[["A",0,40],["B",15,20],["C",25,30],["D",55,10]],[["A",0,40],["B",25,20],["C",35,30],["D",45,10]],[["A",0,40],["B",15,30],["C",25,10],["D",35,20]],[["A",0,40],["B",15,30],["C",25,10],["D",45,20]],[["A",0,40],["B",15,30],["C",25,20],["D",45,10]],[["A",0,40],["B",15,30],["C",35,20],["D",45,10]],[["A",0,40],["B",25,30],["C",35,20],["D",45,10]],[["A",0,40],["B",5,40],["C",15,10],["D",45,10]],[["A",0,40],["B",5,40],["C",25,10],["D",45,10]],[["A",0,40],["B",5,40],["C",35,10],["D",55,10]],[["A",0,40],["B",15,40],["C",25,10],["D",45,10]],[["A",0,50],["B",5,10],["C",35,30],["D",55,10]],[["A",0,50],["B",15,10],["C",35,30],["D",55,10]],[["A",0,50],["B",25,30],["C",35,10],["D",55,10]],[["A",0,30],["B",5,20],["C",15,40],["D",35,20]],[["A",0,30],["B",5,20],["C",15,40],["D",45,20]],[["A",0,30],["B",5,20],["C",25,40],["D",35,20]],[["A",0,30],["B",5,40],["C",15,10],["D",55,30]],[["A",0,30],["B",5,40],["C",15,20],["D",55,20]],[["A",0,30],["B",5,40],["C",25,20],["D",55,20]],[["A",0,30],["B",5,40],["C",45,30],["D",55,10]],[["A",0,30],["B",15,40],["C",45,30],["D",55,10]],[["A",0,30],["B",25,40],["C",45,30],["D",55,10]],[["A",0,40],["B",5,10],["C",15,40],["D",35,20]],[["A",0,40],["B",5,10],["C",15,40],["D",45,20]],[["A",0,40],["B",5,10],["C",25,40],["D",35,20]],[["A",0,40],["B",5,10],["C",25,40],["D",45,20]],[["A",0,40],["B",15,10],["C",25,40],["D",35,20]],[["A",0,40],["B",5,20],["C",35,30],["D",45,20]],[["A",0,40],["B",15,20],["C",25,30],["D",45,20]],[["A",0,40],["B",15,20],["C",25,30],["D",55,20]],[["A",0,40],["B",15,20],["C",35,30],["D",45,20]],[["A",0,40],["B",5,20],["C",15,40],["D",55,10]],[["A",0,40],["B",5,20],["C",25,40],["D",55,10]],[["A",0,40],["B",15,20],["C",25,40],["D",55,10]],[["A",0,40],["B",25,20],["C",35,40],["D",45,10]],[["A",0,40],["B",15,30],["C",25,10],["D",55,30]],[["A",0,40],["B",15,30],["C",45,30],["D",55,10]],[["A",0,40],["B",25,30],["C",45,30],["D",55,10]],[["A",0,40],["B",35,30],["C",45,30],["D",55,10]],[["A",0,40],["B",5,40],["C",15,10],["D",35,20]],[["A",0,40],["B",5,40],["C",15,10],["D",45,20]],[["A",0,40],["B",5,40],["C",25,10],["D",45,20]],[["A",0,40],["B",5,40],["C",35,10],["D",55,20]],[["A",0,40],["B",15,40],["C",25,10],["D",45,20]],[["A",0,40],["B",5,40],["C",15,20],["D",55,10]],[["A",0,40],["B",5,40],["C",25,20],["D",45,10]],[["A",0,40],["B",5,40],["C",35,20],["D",45,10]],[["A",0,40],["B",15,40],["C",25,20],["D",45,10]],[["A",0,40],["B",15,40],["C",35,20],["D",45,10]],[["A",0,40],["B",25,40],["C",35,20],["D",45,10]],[["A",0,50],["B",5,10],["C",35,30],["D",45,20]],[["A",0,50],["B",5,10],["C",35,30],["D",55,20]],[["A",0,50],["B",15,10],["C",35,30],["D",45,20]],[["A",0,50],["B",15,10],["C",35,30],["D",55,20]],[["A",0,50],["B",25,10],["C",35,30],["D",45,20]],[["A",0,50],["B",5,10],["C",25,40],["D",55,10]],[["A",0,50],["B",5,10],["C",35,40],["D",55,10]],[["A",0,50],["B",15,10],["C",25,40],["D",55,10]],[["A",0,50],["B",15,10],["C",35,40],["D",55,10]],[["A",0,50],["B",5,20],["C",45,30],["D",55,10]],[["A",0,50],["B",35,20],["C",45,30],["D",55,10]],[["A",0,50],["B",25,30],["C",35,10],["D",45,20]],[["A",0,50],["B",25,30],["C",35,10],["D",55,20]],[["A",0,50],["B",25,30],["C",35,20],["D",55,10]],[["A",0,50],["B",25,30],["C",45,20],["D",55,10]],[["A",0,50],["B",35,30],["C",45,20],["D",55,10]],[["A",0,50],["B",15,40],["C",25,10],["D",55,10]],[["A",0,50],["B",15,40],["C",35,10],["D",55,10]],[["A",0,50],["B",25,40],["C",35,10],["D",55,10]]];
+let lastKey="";
+function randomW(){for(let k=0;k<20;k++){const base=POOL[Math.floor(Math.random()*POOL.length)];const letters=["A","B","C","D"].sort(()=>Math.random()-.5);
+  const jobs=base.map((j,i)=>[letters[i],j[1],j[2]]).sort((a,b)=>a[0].localeCompare(b[0]));const key=JSON.stringify(jobs);if(key!==lastKey){lastKey=key;return jobs;}}return POOL[0];}
+const Q2=[["P1",10,0,30],["P2",20,5,51],["P3",5,5,25],["P4",10,10,35],["P5",15,15,50]];
+const POL={
+ FIFO:{rule:"First in, first out. When the CPU is free, run the job that arrived first. A started job keeps the CPU until it finishes.",goal:"FIFO ignores job length. Short jobs that arrive behind a long one wait (the convoy effect).",src:"cpu-sched §7.3"},
+ SJF:{rule:"Shortest job first. When the CPU is free, run the shortest job. A started job keeps the CPU until it finishes (non-preemptive).",goal:"SJF fixes the order only when the CPU is free. A short job arriving late still waits for the running job.",src:"cpu-sched §7.4"},
+ STCF:{rule:"Shortest time-to-completion first. At every decision point, run the job with the least time left, including a job that just arrived. Preemption allowed.",goal:"STCF compares time left, not total length, and preempts when a shorter job arrives.",src:"cpu-sched §7.5"},
+ RR:{rule:"Round robin, time slice 10 s. A job runs for one slice, then the CPU goes to the job that has waited longest. The job that used its slice goes to the back. An arrival does not cut a slice short.",goal:"RR keeps every job's first wait short (response time) but finishes jobs late (turnaround).",src:"cpu-sched §7.7"}
+};
+const LEVELS=[
+ {id:"L1",kind:"pick",policy:"FIFO",title:"FIFO"},
+ {id:"L2",kind:"pick",policy:"SJF",title:"SJF"},
+ {id:"L3",kind:"pick",policy:"STCF",title:"STCF"},
+ {id:"L4",kind:"pick",policy:"RR",title:"Round Robin"},
+ {id:"CMP",kind:"compare",title:"Compare"},
+ {id:"EX",kind:"pick",random:true,title:"Random test"},
+ {id:"Q2",kind:"rrq",fixed:true,title:"RR exam: Table Q2(a)"},
+ {id:"QR",kind:"rrq",fixed:false,title:"RR exam: random"}
+];
+const COLORS=["--jA","--jB","--jC","--jD","--jE"], col=i=>`var(${COLORS[i%5]})`;
+const $=id=>document.getElementById(id);
+const fmt=x=>(Math.round(x*100)/100).toString();
+const num=v=>{const x=parseFloat(String(v).replace(",","."));return isNaN(x)?null:x;};
+const close=(a,b)=>a!==null&&Math.abs(a-b)<=0.011;
+const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}};
+let STARS=store.get("sched3-stars",{}), RESULTS=store.get("sched3-results",{});
+let LV=0, phase="schedule", G=null;   // G = current game state
+
+function renderLevels(){
+  $("levels").innerHTML=LEVELS.map((L,i)=>{const st=STARS[L.id];
+    const sub=L.kind==="compare"?"Four policies, one job set":L.random?"Random policy":L.kind==="rrq"?(L.fixed?"Fixed exam sample":"New values every run"):(st!==undefined?"★".repeat(st)+"☆".repeat(3-st):"Not played");
+    return `<button class="lv" aria-current="${i===LV}" data-i="${i}">${i+1}. ${L.title}<small>${sub}</small></button>`;}).join("");
+  $("levels").querySelectorAll(".lv").forEach(b=>b.onclick=()=>{LV=+b.dataset.i;start();});
+}
+function stepsBar(){const n=["schedule","answer","review"],lbl=["1. Build the schedule","2. Answer","3. Review"],k=n.indexOf(phase);
+  return `<div class="steps">${lbl.map((l,i)=>`<span ${i===k?'aria-current="step"':""} class="${i<k?"donestep":""}">${l}</span>`).join("")}</div>`;}
+
+/* ---------- Gantt ---------- */
+function ganttHTML(slices,names,{unit=5,total,arrivals=[],bad=new Set(),label=""}={}){
+  const n=Math.ceil(total/unit), cols=`repeat(${n},minmax(18px,1fr))`; let cells="",used=0;
+  slices.forEach((x,k)=>{const c=x.start/unit+1, sp=(x.end-x.start)/unit;
+    for(let z=used+1;z<c;z++) cells+=`<div class="cell" style="grid-column:${z}">idle</div>`;
+    cells+= x.i===null?`<div class="cell" style="grid-column:${c}/span ${sp}">idle</div>`:`<div class="cell job ${bad.has(k)?"badrun":""}" style="grid-column:${c}/span ${sp};background:${col(x.i)}" title="${names[x.i]} ${x.start}–${x.end}">${names[x.i]}</div>`;
+    used=c+sp-1;});
+  for(let c=used+1;c<=n;c++) cells+=`<div class="cell" style="grid-column:${c}"></div>`;
+  let axis=""; for(let c=0;c<n;c+=2) axis+=`<span class="mono" style="grid-column:${c+1}/span ${Math.min(2,n-c)}">${c*unit}</span>`;
+  const arr=arrivals.map(([t,nm])=>`<span style="grid-column:${t/unit+1}/span ${Math.min(3,n-t/unit)}">${nm}</span>`).join("");
+  return `${label?`<p class="glabel">${label}</p>`:""}<div class="gantt">${arr?`<div class="arrivals" style="grid-template-columns:${cols}">${arr}</div>`:""}<div class="track" style="grid-template-columns:${cols}">${cells}</div><div class="axis" style="grid-template-columns:${cols}">${axis}</div></div>`;
+}
+
+/* ---------- start ---------- */
+function start(){
+  const L=LEVELS[LV]; phase="schedule"; renderLevels();
+  if(L.kind==="compare") return renderCompare();
+  if(L.kind==="rrq") return rqStart(L,false);
+  let policy=L.policy, jobs=randomW();
+  if(L.random){ policy=["FIFO","SJF","STCF","RR"][Math.floor(Math.random()*4)]; }
+  const level={policy,q:10,jobs};
+  G={L,level,S:newState(level),policy,ans:null};
+  renderPick();
+}
+
+/* ---------- pick levels (FIFO/SJF/STCF/RR) ---------- */
+function sheetPick(){
+  const p=POL[G.policy], jobs=G.level.jobs;
+  $("sheet").innerHTML=`<p class="qno">${G.L.random?"Random test":"Level "+(LV+1)}</p><h2>${G.L.random?"Policy: "+G.policy:G.L.title}</h2>
+   <p>${p.rule}</p><p class="goal">You learn: ${p.goal}</p>
+   <div class="tablewrap"><table><thead><tr><th>Job</th><th>Arrives (s)</th><th>Length (s)</th></tr></thead><tbody>
+   ${jobs.map((j,i)=>`<tr><td><span class="chip" style="background:${col(i)}">${j[0]}</span></td><td class="mono">${j[1]}</td><td class="mono">${j[2]}</td></tr>`).join("")}</tbody></table></div>
+   <p class="hint">The OS gets control at every timer interrupt (every 10 s), when a job arrives, and when a job finishes (cpu-mechanisms §6.3). Each decision point is yours.</p>
+   <p class="src">Source: ${p.src}</p>`;
+}
+function eventText(S){
+  if(allDone(S)) return "All jobs finished.";
+  if(S.t===0) return "Decision point at 0 s: start.";
+  const why=[]; S.jobs.forEach(j=>{ if(j.arr===S.t) why.push(`${j.n} arrived`); if(j.done===S.t) why.push(`${j.n} finished`); });
+  if(G.policy==="RR"){ if(S.qLeft===0&&!S.jobs.some(j=>j.done===S.t)) why.push(`${S.jobs[S.last].n}'s slice ended`); }
+  else if(S.t%TICK===0) why.push("timer interrupt");
+  return `Decision point at ${S.t} s: ${why.join(", ")}. Which job runs?`;
+}
+function stateOf(S,j){ if(j.rem===0) return "Done"; if(j.arr>S.t) return "Not arrived"; if(S.last===j.i) return "Ran last"; return "Waiting"; }
+function liveTable(S,rr){
+  return `<div class="tablewrap"><table><thead><tr><th>Job</th><th>Left</th>${rr?"<th>Waiting since</th>":""}<th>First run</th><th>Done</th><th>State</th></tr></thead><tbody>
+  ${S.jobs.map(j=>`<tr><td><span class="chip" style="background:${col(j.i)}">${j.n}</span></td><td class="mono">${j.rem}</td>${rr?`<td class="mono">${j.rem>0&&j.arr<=S.t&&S.last!==j.i?j.since:"–"}</td>`:""}<td class="mono">${j.first??"–"}</td><td class="mono">${j.done??"–"}</td><td>${stateOf(S,j)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+function pickGantt(S,opts={}){
+  const names=S.jobs.map(j=>j.n), total=Math.max(S.t,S.jobs.reduce((a,j)=>a+j.len,0));
+  const slices=S.sched.map(x=>({i:x.job,start:x.start,end:x.end}));
+  const bad=new Set(); if(opts.mark) S.sched.forEach((x,k)=>{ if(x.job!==null&&!x.ok) bad.add(k); });
+  return ganttHTML(slices,names,{total,arrivals:S.jobs.filter(j=>j.arr>0).map(j=>[j.arr,j.n+" arrives"]),bad,label:opts.label});
+}
+function renderPick(){
+  sheetPick(); const S=G.S, rr=G.policy==="RR", done=allDone(S);
+  let h=stepsBar();
+  if(phase==="schedule"){
+    const r=new Set(ready(S).map(j=>j.i));
+    h+=`<div class="clock"><span class="t mono">t = ${S.t} s</span><span class="lbl">${rr?(S.last!==null&&S.jobs[S.last].rem>0&&S.qLeft>0?`${S.jobs[S.last].n} has ${S.qLeft} s of its slice left`:"Time slice 10 s"):"Timer interrupt every 10 s"}</span></div>
+     <p class="event">${eventText(S)}</p>
+     <div class="controls">${S.jobs.map(j=>`<button class="run" style="background:${col(j.i)}" data-i="${j.i}" ${(!r.has(j.i)||done)?"disabled":""}>Run ${j.n}</button>`).join("")}</div>
+     ${pickGantt(S)}${liveTable(S,rr)}
+     <h3>Your moves</h3><ol class="moves">${S.sched.filter(x=>x.job!==null).map(x=>`<li><span class="mono">${x.start}–${x.end} s</span> ran ${S.jobs[x.job].n}</li>`).join("")||"<li>None yet.</li>"}</ol>
+     <div class="row"><button class="btn" id="undo" ${S.sched.length?"":"disabled"}>Undo last move</button><button class="btn" id="restart">Restart with new values</button>
+     ${done?`<button class="btn primary" id="toAnswer">Go to answers</button>`:""}</div>`;
+  } else if(phase==="answer"){
+    h+=`<h3>Your schedule</h3>${pickGantt(S)}${liveTable(S,rr)}
+     <h3>Compute from your own schedule</h3>
+     <p class="hint">Turnaround = completion − arrival. Response = first run − arrival (cpu-sched eq. 7.1, 7.2). Round to 2 decimals.</p>
+     <div class="answers"><label>Average turnaround (s)<input id="aT" inputmode="decimal" autocomplete="off"></label><label>Average response (s)<input id="aR" inputmode="decimal" autocomplete="off"></label></div>
+     <p class="err" id="err"></p>
+     <div class="row"><button class="btn" id="back">Back to schedule</button><button class="btn primary" id="submit">Submit for marking</button></div>
+     <p class="hint">Stars: 1 for every move following ${G.policy}, 1 for average turnaround, 1 for average response. Submitting is final.</p>`;
+  } else h+=reviewPick();
+  $("work").innerHTML=h;
+  if(phase==="schedule"){
+    $("work").querySelectorAll(".run").forEach(b=>b.onclick=()=>{step(G.S,+b.dataset.i);renderPick();});
+    $("undo").onclick=()=>{const pk=S.sched.filter(x=>x.job!==null).map(x=>x.job);pk.pop();G.S=replay(G.level,pk);renderPick();};
+    $("restart").onclick=start;
+    if(done) $("toAnswer").onclick=()=>{phase="answer";renderPick();$("aT").focus();};
+  } else if(phase==="answer"){
+    $("back").onclick=()=>{phase="schedule";renderPick();};
+    $("submit").onclick=()=>{const t=num($("aT").value),r=num($("aR").value);
+      if(t===null||r===null){$("err").textContent="Enter both averages.";return;}
+      G.ans={t,r}; phase="review";
+      const m=metrics(S), stars=(S.violations===0?1:0)+(close(t,m.tat)?1:0)+(close(r,m.resp)?1:0);
+      if(!G.L.random){ if(!(STARS[G.L.id]>=stars)){STARS[G.L.id]=stars;store.set("sched3-stars",STARS);} RESULTS[G.policy]={tat:m.tat,resp:m.resp,breaks:S.violations}; store.set("sched3-results",RESULTS); }
+      renderLevels(); renderPick(); window.scrollTo(0,0);};
+  } else {
+    $("again").onclick=start; if($("next")) $("next").onclick=()=>{LV++;start();window.scrollTo(0,0);};
+  }
+}
+function reviewPick(){
+  const S=G.S, m=metrics(S), pr=policyRange(G.level), ref=pr.one, rm=metrics(ref), {t,r}=G.ans;
+  const okS=S.violations===0, okT=close(t,m.tat), okR=close(r,m.resp), stars=(okS?1:0)+(okT?1:0)+(okR?1:0);
+  const wrong=S.sched.filter(x=>x.job!==null&&!x.ok);
+  const sumT=m.per.map(p=>p.tat).join(" + "), sumR=m.per.map(p=>p.resp).join(" + "), n=m.per.length;
+  const calc=m.per.map((p,i)=>`${p.n}: turnaround ${S.jobs[i].done} − ${S.jobs[i].arr} = ${p.tat}; response ${S.jobs[i].first} − ${S.jobs[i].arr} = ${p.resp}`).join("<br>");
+  return `<p class="stars" aria-label="${stars} of 3 stars">${"★".repeat(stars)}${"☆".repeat(3-stars)}</p>
+   <ul class="verdict">
+    <li class="${okS?"ok":"no"}">Schedule: ${okS?`every move followed ${G.policy}.`:`${wrong.length} move${wrong.length>1?"s":""} broke ${G.policy}. See below.`}</li>
+    <li class="${okT?"ok":"no"}">Average turnaround: you wrote ${t}; your schedule gives ${fmt(m.tat)} s.</li>
+    <li class="${okR?"ok":"no"}">Average response: you wrote ${r}; your schedule gives ${fmt(m.resp)} s.</li></ul>
+   ${wrong.length?`<h3>Why your schedule is wrong</h3><ol class="mistakes">${wrong.map(x=>`<li>At <span class="mono">${x.start} s</span> you ran ${S.jobs[x.job].n}. ${G.policy} allows ${x.set.map(i=>S.jobs[i].n).join(" or ")}. ${x.why}</li>`).join("")}</ol>
+     <p class="hint">After the first wrong move, later moves are judged on the state your schedule created.</p>`:""}
+   ${!okT||!okR?`<h3>Working for your schedule</h3><p class="calc mono">${calc}<br>Average turnaround = (${sumT}) / ${n} = ${fmt(m.tat)}<br>Average response = (${sumR}) / ${n} = ${fmt(m.resp)}</p>`:""}
+   <h3>Your schedule vs correct ${G.policy}</h3>
+   ${pickGantt(S,{mark:true,label:"Yours (red outline = rule broken)"})}${pickGantt(ref,{label:`Correct ${G.policy}`})}
+   <div class="tablewrap"><table><thead><tr><th>Job</th><th>Your turnaround</th><th>Correct</th><th>Your response</th><th>Correct</th></tr></thead><tbody>
+   ${m.per.map((p,i)=>`<tr><td><span class="chip" style="background:${col(i)}">${p.n}</span></td><td class="mono">${p.tat}</td><td class="mono">${rm.per[i].tat}</td><td class="mono">${p.resp}</td><td class="mono">${rm.per[i].resp}</td></tr>`).join("")}
+   <tr><td>Average</td><td class="mono">${fmt(m.tat)}</td><td class="mono">${fmt(rm.tat)}</td><td class="mono">${fmt(m.resp)}</td><td class="mono">${fmt(rm.resp)}</td></tr></tbody></table></div>
+   <div class="row"><button class="btn" id="again">Try again with new values</button>${LV<LEVELS.length-1?`<button class="btn primary" id="next">Next: ${LEVELS[LV+1].title}</button>`:""}</div>`;
+}
+
+/* ---------- compare ---------- */
+function renderCompare(){
+  phase="answer"; const W=randomW();
+  $("sheet").innerHTML=`<p class="qno">Level 5</p><h2>Same jobs, four policies</h2>
+   <div class="tablewrap"><table><thead><tr><th>Job</th><th>Arrives (s)</th><th>Length (s)</th></tr></thead><tbody>${W.map((j,i)=>`<tr><td><span class="chip" style="background:${col(i)}">${j[0]}</span></td><td class="mono">${j[1]}</td><td class="mono">${j[2]}</td></tr>`).join("")}</tbody></table></div>
+   <p class="goal">You learn: no single policy wins every metric. Optimising turnaround and optimising response pull against each other (cpu-sched §7.7, §7.10).</p>`;
+  const P=["FIFO","SJF","STCF","RR"], ref={}; P.forEach(p=>ref[p]=metrics(policyRange({policy:p,q:10,jobs:W}).one));
+  const shortest=W.reduce((a,j,i)=>j[2]<W[a][2]||(j[2]===W[a][2]&&j[1]<W[a][1])?i:a,0), sName=W[shortest][0];
+  let h=`<p class="event">Work out each policy's schedule on paper (or replay levels 1–4), then answer.</p>`;
+  const q=(id,legend)=>`<fieldset><legend>${legend}</legend>${P.map(p=>`<label><input type="radio" name="${id}" value="${p}"> ${p}</label>`).join("")}</fieldset>`;
+  h+=`<h3>Questions (answer from the correct schedules)</h3><div class="qs">${q("q1","Which policy gives the lowest average turnaround?")}${q("q2","Which policy gives the lowest average response time?")}${q("q3",`Under which policy does the shortest job, ${sName}, have the longest turnaround?`)}</div>
+   <p class="err" id="err"></p><div class="row"><button class="btn primary" id="cmpCheck">Submit</button><button class="btn" id="cmpNew">New values</button></div><div id="cmpRes"></div>`;
+  $("work").innerHTML=h; $("cmpNew").onclick=renderCompare;
+  $("cmpCheck").onclick=()=>{
+    const v=k=>(document.querySelector(`input[name=${k}]:checked`)||{}).value;
+    if(!v("q1")||!v("q2")||!v("q3")){$("err").textContent="Answer all three.";return;}
+    const best=k=>P.reduce((a,p)=>ref[p][k]<ref[a][k]?p:a,P[0]), worst=P.reduce((a,p)=>ref[p].per[shortest].tat>ref[a].per[shortest].tat?p:a,P[0]);
+    const ans={q1:best("tat"),q2:best("resp"),q3:worst};
+    const why={q1:`Correct averages: ${P.map(p=>p+" "+fmt(ref[p].tat)).join(", ")}. STCF is optimal for turnaround under these assumptions (cpu-sched §7.5).`,
+      q2:`Correct averages: ${P.map(p=>p+" "+fmt(ref[p].resp)).join(", ")}. RR is good for response time (cpu-sched §7.7).`,
+      q3:`${sName}'s turnaround: ${P.map(p=>p+" "+ref[p].per[shortest].tat).join(", ")}. Short jobs queued behind long ones is the convoy effect (cpu-sched §7.3).`};
+    $("cmpRes").innerHTML=`<ul class="verdict">${["q1","q2","q3"].map(k=>`<li class="${v(k)===ans[k]?"ok":"no"}">You chose ${v(k)}; answer ${ans[k]}. ${why[k]}</li>`).join("")}</ul>`+P.map(p=>{const s=policyRange({policy:p,q:10,jobs:W}).one;return pickGantt(s,{label:"Correct "+p});}).join("");
+    $("cmpCheck").disabled=true; document.querySelectorAll(".qs input").forEach(x=>x.disabled=true);
+  };
+}
+
+/* ---------- RR exam (queue building) ---------- */
+let rqQ=5, rqNew=true, rqSet=null, rqSummary={};
+function mkProcs(rows){return rows.map(([name,burst,arr,dl])=>({name,num:+name.slice(1),burst,arr,dl}));}
+function randomSet(){
+  for(let tries=0;tries<500;tries++){
+    const nums=[1,2,3,4,5].sort(()=>Math.random()-.5);
+    const rows=nums.map(n=>{const burst=[5,10,15,20][Math.floor(Math.random()*4)], arr=[0,5,10,15,20][Math.floor(Math.random()*5)], dl=burst+5*(2+Math.floor(Math.random()*7)); return ["P"+n,burst,arr,dl];});
+    if(!rows.some(r=>r[2]===0)) continue;
+    const arrs=rows.map(r=>r[2]); if(new Set(arrs).size===arrs.length) continue;
+    const P=mkProcs(rows); let multi=0,miss=0,met=0;
+    for(const q of [5,10,20]){const r=rrSim(P,q,true); multi+=r.events.filter(e=>e.order.length>1).length; r.per.forEach(x=>x.met?met++:miss++);}
+    if(multi>=3&&miss>0&&met>0) return rows.sort((a,b)=>a[0].localeCompare(b[0]));
+  }
+  return Q2;
+}
+function rqStart(L,keep){
+  if(!keep||!rqSet){ rqSet=L.fixed?Q2:randomSet(); rqSummary={}; }
+  const P=mkProcs(rqSet);
+  G={L,P,q:rqQ,nf:rqNew,t:0,queue:[],pending:[],placed:[],k:0,slices:[],moves:[],breaks:0,lastRun:null,
+     jobs:P.map(p=>({rem:p.burst,first:null,done:null})),byArr:P.map((p,i)=>i).sort((a,b)=>P[a].arr-P[b].arr||P[a].num-P[b].num),ans:null};
+  phase="schedule"; G.t=P[G.byArr[0]].arr; rqTake(a=>a<=G.t,null); rqAuto(); renderRQ();
+}
+function rqTake(cond,pre,endT){
+  const mid=[],at=[];
+  while(G.k<G.byArr.length&&cond(G.P[G.byArr[G.k]].arr)){const i=G.byArr[G.k];(endT!==undefined&&G.P[i].arr===endT?at:mid).push(i);G.k++;}
+  G.correct=pre===null?[...mid,...at]:(G.nf?[...mid,...at,pre]:[...mid,pre,...at]);
+  G.pending=[...G.correct].sort((a,b)=>G.P[a].num-G.P[b].num); G.placed=[]; G.pre=pre; G.decT=G.t;
+}
+function rqAuto(){
+  while(true){
+    if(G.pending.length===1){ rqPlace(G.pending[0],true); continue; }
+    if(G.pending.length) return;
+    if(G.jobs.every(j=>j.rem===0)) return;
+    if(!G.queue.length){ G.t=G.P[G.byArr[G.k]].arr; rqTake(a=>a<=G.t,null); continue; }
+    const i=G.queue.shift(), j=G.jobs[i], d=Math.min(G.q,j.rem); if(j.first===null)j.first=G.t;
+    G.slices.push({i,start:G.t,end:G.t+d}); const e=G.t+d; j.rem-=d; if(j.rem===0)j.done=e;
+    G.lastRun={i,finished:j.rem===0}; G.t=e; rqTake(a=>a<=e,j.rem>0?i:null,e);
+  }
+}
+function rqPlace(i,auto){
+  const remaining=G.correct.filter(x=>!G.placed.includes(x)), exp=remaining[0], ok=i===exp; if(!ok) G.breaks++;
+  let why="";
+  if(!ok){ const e=G.P[exp], me=G.P[i];
+    if(i===G.pre) why=`${e.name} arrived at ${e.arr} ms${e.arr<G.t?", during the slice":", the same instant the slice ended"}, so it joins before the preempted ${me.name}${e.arr===G.t?" (tie rule set: new arrival first)":""}.`;
+    else if(exp===G.pre) why=`The preempted ${e.name} joins before ${me.name}, because ${me.name} arrived at the same instant the slice ended and the tie rule is set to preempted process first.`;
+    else if(e.arr<me.arr) why=`${e.name} arrived earlier (${e.arr} ms) than ${me.name} (${me.arr} ms).`;
+    else why=`${e.name} and ${me.name} arrived at the same time; the lower process number joins first.`; }
+  G.placed.push(i); G.pending=G.pending.filter(x=>x!==i); G.queue.push(i);
+  G.moves.push({t:G.t,i,ok,auto:!!auto,why,correct:[...G.correct]});
+  if(!auto) rqAuto();
+}
+function rqReplay(keep){ const L=G.L; rqStart(L,true); keep.forEach(i=>{rqPlace(i,false);}); }
+function rqTotal(){return Math.max(G.t,...rrSim(G.P,G.q,G.nf).slices.map(s=>s.end));}
+function rqGantt(slices,label,bad){return ganttHTML(slices,G.P.map(p=>p.name),{total:Math.max(rqTotal(),...slices.map(s=>s.end)),label,bad});}
+function sheetRQ(){
+  const P=G.P;
+  $("sheet").innerHTML=`<p class="qno">${G.L.fixed?"Exam Question 2(a)":"Exam practice: random"}</p><h2>Round Robin, one ready queue</h2>
+   <p>Estimate the average waiting time and average turnaround time of RR for the processes below, for quantum 5, 10 and 20 ms. Deadline is counted from arrival.</p>
+   <div class="tablewrap"><table><thead><tr><th>Process</th><th>Burst (ms)</th><th>Arrival (ms)</th><th>Deadline (ms)</th></tr></thead><tbody>
+   ${P.map((p,i)=>`<tr><td><span class="chip" style="background:${col(i)}">${p.name}</span></td><td class="mono">${p.burst}</td><td class="mono">${p.arr}</td><td class="mono">${p.dl}</td></tr>`).join("")}</tbody></table></div>
+   <p class="hint" style="margin-top:12px">Quantum</p><div class="row" style="margin-top:0" id="qBtns">${[5,10,20].map(q=>`<button class="btn" aria-pressed="${q===G.q}" data-q="${q}">${q} ms</button>`).join("")}</div>
+   <p class="hint" style="margin-top:12px">When a process arrives at the same instant a slice ends</p>
+   <div class="row" style="margin-top:0"><button class="btn" id="tNew" aria-pressed="${G.nf}">New arrival joins first</button><button class="btn" id="tOld" aria-pressed="${!G.nf}">Preempted process joins first</button></div>
+   <p class="hint">Same arrival time: lower process number joins first. Deadline met if turnaround ≤ deadline. Changing a setting restarts the run.</p>
+   ${G.L.fixed?`<p class="hint">This is the fixed exam sample. Level 8 gives new values every run.</p>`:`<p class="hint">Quantum and tie-rule buttons keep these values so you can compare quanta. Restart or Try again gives new values.</p>`}
+   <h3 style="font-size:16px;margin:16px 0 4px">Quantum comparison</h3>
+   <div class="tablewrap"><table><thead><tr><th>q (ms)</th><th>Avg wait</th><th>Avg turnaround</th><th>Missed</th></tr></thead><tbody>
+   ${[5,10,20].map(q=>{const r=rqSummary[q+"-"+G.nf];return `<tr><td class="mono">${q}</td><td class="mono">${r?fmt(r.wait):"–"}</td><td class="mono">${r?fmt(r.tat):"–"}</td><td>${r?(r.miss.join(", ")||"none"):"–"}</td></tr>`;}).join("")}</tbody></table></div>
+   <p class="hint">Filled in with correct values after you submit each quantum.</p>`;
+  $("qBtns").querySelectorAll("button").forEach(b=>b.onclick=()=>{rqQ=+b.dataset.q;rqStart(G.L,true);});
+  $("tNew").onclick=()=>{rqNew=true;rqStart(G.L,true);}; $("tOld").onclick=()=>{rqNew=false;rqStart(G.L,true);};
+}
+function rqLive(){
+  return `<div class="tablewrap"><table><thead><tr><th>Process</th><th>Left</th><th>First run</th><th>Done</th></tr></thead><tbody>
+  ${G.P.map((p,i)=>`<tr><td><span class="chip" style="background:${col(i)}">${p.name}</span></td><td class="mono">${G.jobs[i].rem}</td><td class="mono">${G.jobs[i].first??"–"}</td><td class="mono">${G.jobs[i].done??"–"}</td></tr>`).join("")}</tbody></table></div>`;
+}
+function renderRQ(){
+  sheetRQ(); const P=G.P, done=G.jobs.every(j=>j.rem===0);
+  let h=stepsBar();
+  if(phase==="schedule"){
+    const lr=G.lastRun;
+    h+=`<div class="clock"><span class="t mono">t = ${G.t} ms</span><span class="lbl">Quantum ${G.q} ms</span></div>
+     <p class="event">${done?"All processes finished.":lr?`${P[lr.i].name} ${lr.finished?"finished":"used its full slice"} at ${G.t} ms. Put the processes below at the tail of the queue, in order.`:`Start at ${G.t} ms. Put the arrivals in the queue, in order.`}</p>
+     <p class="hint">Must join now (first click goes nearer the head)</p>
+     <div class="controls">${G.pending.length?G.pending.map(i=>`<button class="run" style="background:${col(i)}" data-i="${i}">${P[i].name}<br><small>${i===G.pre?"slice ended, "+G.jobs[i].rem+" ms left":"arrived "+P[i].arr+" ms"}</small></button>`).join(""):`<span class="hint">Nothing to place.</span>`}</div>
+     <p class="hint" style="margin-top:12px">Ready queue, head on the left</p>
+     <div class="queue">${G.queue.length?G.queue.map(i=>`<span class="chip" style="background:${col(i)}">${P[i].name}</span>`).join(""):`<span class="hint">Empty</span>`}</div>
+     ${rqGantt(G.slices,"CPU")}${rqLive()}
+     <h3>Your moves</h3><ol class="moves">${G.moves.map(m=>`<li><span class="mono">${m.t} ms</span> ${P[m.i].name} joined the queue${m.auto?" (only one to place, added for you)":""}</li>`).join("")}</ol>
+     <div class="row"><button class="btn" id="undo" ${G.moves.some(m=>!m.auto)?"":"disabled"}>Undo last move</button><button class="btn" id="restart">${G.L.fixed?"Restart":"Restart with new values"}</button>${done?`<button class="btn primary" id="toAnswer">Go to answers</button>`:""}</div>`;
+  } else if(phase==="answer"){
+    h+=`<h3>Your Gantt chart</h3>${rqGantt(G.slices)}${rqLive()}
+     <h3>Answer from your own chart</h3><p class="hint">Turnaround = completion − arrival. Waiting = turnaround − burst. Round to 2 decimals.</p>
+     <div class="answers"><label>Average waiting time (ms)<input id="aW" inputmode="decimal" autocomplete="off"></label><label>Average turnaround time (ms)<input id="aT" inputmode="decimal" autocomplete="off"></label></div>
+     <div class="answers">${P.map((p,i)=>`<label>${p.name} deadline<select id="d${i}"><option value="">Choose</option><option value="met">Met</option><option value="miss">Missed</option></select></label>`).join("")}</div>
+     <p class="err" id="err"></p>
+     <div class="row"><button class="btn" id="back">Back to schedule</button><button class="btn primary" id="submit">Submit for marking</button></div>
+     <p class="hint">Stars: 1 for correct queue order at every step, 1 for both averages, 1 for every deadline. Submitting is final.</p>`;
+  } else h+=reviewRQ();
+  $("work").innerHTML=h;
+  if(phase==="schedule"){
+    $("work").querySelectorAll(".controls .run").forEach(b=>b.onclick=()=>{rqPlace(+b.dataset.i,false);renderRQ();});
+    $("undo").onclick=()=>{const keep=G.moves.filter(m=>!m.auto).map(m=>m.i);keep.pop();rqReplay(keep);renderRQ();};
+    $("restart").onclick=()=>{rqStart(G.L,G.L.fixed);};
+    if(done) $("toAnswer").onclick=()=>{phase="answer";renderRQ();$("aW").focus();};
+  } else if(phase==="answer"){
+    $("back").onclick=()=>{phase="schedule";renderRQ();};
+    $("submit").onclick=()=>{const w=num($("aW").value),t=num($("aT").value),d=P.map((p,i)=>$("d"+i).value);
+      if(w===null||t===null||d.some(x=>!x)){$("err").textContent="Enter both averages and judge every deadline.";return;}
+      G.ans={w,t,d}; phase="review"; const ref=rrSim(G.P,G.q,G.nf); rqSummary[G.q+"-"+G.nf]={wait:ref.wait,tat:ref.tat,miss:ref.per.filter(x=>!x.met).map(x=>x.name)};
+      renderRQ(); window.scrollTo(0,0);};
+  } else {
+    $("work").querySelectorAll("button[data-q]").forEach(b=>b.onclick=()=>{rqQ=+b.dataset.q;rqStart(G.L,true);window.scrollTo(0,0);});
+    $("again").onclick=()=>rqStart(G.L,G.L.fixed);
+  }
+}
+function reviewRQ(){
+  const P=G.P, {w,t,d}=G.ans, ref=rrSim(P,G.q,G.nf);
+  const mine=P.map((p,i)=>{const j=G.jobs[i],tat=j.done-p.arr;return {name:p.name,done:j.done,tat,wait:tat-p.burst,met:tat<=p.dl};});
+  const avg=k=>mine.reduce((a,x)=>a+x[k],0)/mine.length, mw=avg("wait"), mt=avg("tat");
+  const okO=G.breaks===0, okW=close(w,mw), okT=close(t,mt), okA=okW&&okT, okD=mine.every((m,i)=>(d[i]==="met")===m.met), stars=(okO?1:0)+(okA?1:0)+(okD?1:0);
+  const wrong=G.moves.filter(m=>!m.ok);
+  const badSlices=new Set(); // mark slices that differ from correct at same index
+  G.slices.forEach((s,k)=>{const r=ref.slices[k]; if(!r||r.i!==s.i||r.start!==s.start||r.end!==s.end) badSlices.add(k);});
+  const dlWrong=mine.map((m,i)=>({m,i})).filter(({m,i})=>(d[i]==="met")!==m.met);
+  return `<p class="stars" aria-label="${stars} of 3 stars">${"★".repeat(stars)}${"☆".repeat(3-stars)}</p>
+   <ul class="verdict">
+    <li class="${okO?"ok":"no"}">Queue order: ${okO?"correct at every step.":`${wrong.length} wrong move${wrong.length>1?"s":""}. See below.`}</li>
+    <li class="${okW?"ok":"no"}">Average waiting: you wrote ${w}; your chart gives ${fmt(mw)} ms.</li>
+    <li class="${okT?"ok":"no"}">Average turnaround: you wrote ${t}; your chart gives ${fmt(mt)} ms.</li>
+    <li class="${okD?"ok":"no"}">Deadlines: ${okD?"all judged correctly.":dlWrong.map(({m,i})=>`${m.name}: turnaround ${m.tat} ${m.met?"≤":">"} deadline ${P[i].dl}, so ${m.met?"met":"missed"}`).join("; ")+"."}</li></ul>
+   ${wrong.length?`<h3>Why your queue order is wrong</h3><ol class="mistakes">${wrong.map(m=>`<li>At <span class="mono">${m.t} ms</span> you put ${P[m.i].name} next. Correct order at that moment: ${m.correct.map(i=>P[i].name).join(", ")}. ${m.why}</li>`).join("")}</ol>
+     <p class="hint">After the first wrong move, later moves are judged on the queue your choices created.</p>`:""}
+   ${!okA?`<h3>Working for your chart</h3><p class="calc mono">${mine.map((m,i)=>`${m.name}: turnaround ${m.done} − ${P[i].arr} = ${m.tat}; waiting ${m.tat} − ${P[i].burst} = ${m.wait}`).join("<br>")}<br>Average waiting = (${mine.map(m=>m.wait).join(" + ")}) / ${mine.length} = ${fmt(mw)}<br>Average turnaround = (${mine.map(m=>m.tat).join(" + ")}) / ${mine.length} = ${fmt(mt)}</p>`:""}
+   <h3>Your chart vs correct RR (q = ${G.q} ms)</h3>
+   ${rqGantt(G.slices,"Yours (red outline = differs from correct)",badSlices)}${rqGantt(ref.slices,"Correct")}
+   <div class="tablewrap"><table><thead><tr><th>Process</th><th>Your turnaround</th><th>Correct</th><th>Your waiting</th><th>Correct</th><th>Your deadline call</th><th>Correct</th></tr></thead><tbody>
+   ${mine.map((m,i)=>`<tr><td><span class="chip" style="background:${col(i)}">${m.name}</span></td><td class="mono">${m.tat}</td><td class="mono">${ref.per[i].tat}</td><td class="mono">${m.wait}</td><td class="mono">${ref.per[i].wait}</td><td>${d[i]==="met"?"Met":"Missed"}</td><td>${ref.per[i].met?"Met":"Missed"}</td></tr>`).join("")}
+   <tr><td>Average</td><td class="mono">${fmt(mt)}</td><td class="mono">${fmt(ref.tat)}</td><td class="mono">${fmt(mw)}</td><td class="mono">${fmt(ref.wait)}</td><td></td><td></td></tr></tbody></table></div>
+   <div class="row"><button class="btn" id="again">${G.L.fixed?`Try q = ${G.q} ms again`:"Try again with new values"}</button>${[5,10,20].filter(q=>q!==G.q).map(q=>`<button class="btn primary" data-q="${q}">Next: q = ${q} ms</button>`).join("")}</div>`;
+}
+start();
+</script>
+</body>
+</html>
