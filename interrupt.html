@@ -1,0 +1,1029 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>STM32L476 EXTI Interrupt Lab</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: controls (run + trigger buttons + priorities) on top; live timeline full width; below: Flags + NVIC | CPU | Stack | Event log. Same tokens as the SysTick Interrupt Lab. */
+:root{
+  --bg:#EDEFEA; --panel:#FBFCF9; --soft:#F2F4EF; --ink:#16201C; --muted:#5B6862; --line:#D2D8D0;
+  --irq:#B55800; --irq-soft:#FCE6CF; --stk:#0C7570; --stk-soft:#D3EEEA; --rd:#21609F; --rd-soft:#DCE8F5;
+  --tim:#6A4BA8; --tim-soft:#EAE3F7; --hw:#6F7C76; --led:#1F9D3A;
+  --f-disp:"Barlow Condensed","Arial Narrow",sans-serif; --f-body:"IBM Plex Sans",system-ui,sans-serif; --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0E1211; --panel:#161B19; --soft:#1C2220; --ink:#E5EAE6; --muted:#95A29B; --line:#2B3431;
+  --irq:#F2A541; --irq-soft:#3B2B15; --stk:#46C5BB; --stk-soft:#133432; --rd:#7DB1EA; --rd-soft:#17283B;
+  --tim:#B9A2F0; --tim-soft:#2A2340; --hw:#9AA6A0; --led:#5BE07A; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1211; --panel:#161B19; --soft:#1C2220; --ink:#E5EAE6; --muted:#95A29B; --line:#2B3431;
+  --irq:#F2A541; --irq-soft:#3B2B15; --stk:#46C5BB; --stk-soft:#133432; --rd:#7DB1EA; --rd-soft:#17283B;
+  --tim:#B9A2F0; --tim-soft:#2A2340; --hw:#9AA6A0; --led:#5BE07A; color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 var(--f-body)}
+button,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--rd);outline-offset:2px}
+.app{display:flex;flex-direction:column;gap:10px;padding-inline:16px;padding-block:10px 24px;max-width:1700px;margin:0 auto}
+
+.top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.top h1{font:700 26px/1 var(--f-disp);margin:0}
+.top .sub{color:var(--muted);font-size:13px}
+.top details{margin-left:auto;font-size:12px;color:var(--muted);position:relative}
+.top summary{cursor:pointer}
+.top details[open] .src{position:absolute;right:0;top:22px;z-index:20;width:min(680px,92vw);max-height:70vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;box-shadow:0 8px 30px rgba(0,0,0,.18)}
+.src ol{margin:0;padding-left:18px;display:grid;gap:4px}
+.src a{color:var(--rd)}
+
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:stretch}
+.grp{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.grp .lbl{font:600 11px var(--f-body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.btn{border:1px solid var(--line);background:var(--soft);border-radius:8px;padding:8px 13px;cursor:pointer;font-weight:600}
+.btn:disabled{opacity:.35;cursor:default}
+.btn.run{background:var(--stk);border-color:var(--stk);color:var(--panel);min-width:6.5em}
+.trig{border-radius:10px;padding:8px 14px;cursor:pointer;font-weight:700;border:2px solid;display:flex;flex-direction:column;align-items:flex-start;line-height:1.15}
+.trig small{font:500 11.5px var(--f-body);opacity:.85}
+.trig.exti{background:var(--irq-soft);border-color:var(--irq);color:var(--irq)}
+.trig.tim{background:var(--tim-soft);border-color:var(--tim);color:var(--tim)}
+.trig:active{transform:translateY(1px)}
+.prio{display:flex;flex-direction:column;gap:2px;font-size:12.5px}
+.prio label{font-weight:600}
+.prio select{border:1px solid var(--line);background:var(--soft);border-radius:6px;padding:4px 6px;font:700 13px var(--f-mono)}
+.prio small{font:500 10.5px var(--f-mono);color:var(--muted)}
+.speed{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+.try{font-size:12.5px;color:var(--muted);line-height:1.45;flex:1 1 320px}
+.try b{color:var(--ink)}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.card h2{margin:0;font:600 12px var(--f-body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
+.now{font:700 20px/1.15 var(--f-disp);letter-spacing:0;text-transform:none}
+.now.main{color:var(--stk)} .now.exti{color:var(--irq)} .now.tim{color:var(--tim)} .now.hw{color:var(--rd)}
+.tlwrap{overflow-x:auto}
+#tl{display:block;width:100%;min-width:640px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:14px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.95fr) minmax(0,1fr) minmax(0,1.1fr);gap:10px;align-items:start}
+.sec{font:600 13px var(--f-body);margin-top:2px}
+.flag{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:8px}
+.flag .bit{font:700 15px var(--f-mono);width:30px;height:30px;border-radius:7px;display:grid;place-items:center;background:var(--soft);color:var(--muted);border:1px solid var(--line)}
+.flag.on.exti .bit{background:var(--irq);color:var(--panel);border-color:var(--irq)}
+.flag.on.tim .bit{background:var(--tim);color:var(--panel);border-color:var(--tim)}
+.flag b{font-size:13px}
+.flag small{display:block;font-size:12px;color:var(--muted)}
+.flag code{font-size:11px}
+table.nv{width:100%;border-collapse:collapse;font-size:12.5px}
+.nv th{font:600 10.5px var(--f-mono);color:var(--muted);text-align:left;padding:4px 5px;border-bottom:1px solid var(--line)}
+.nv th small{display:block;font-weight:500}
+.nv td{padding:5px;border-bottom:1px solid var(--line);font-family:var(--f-mono);font-weight:700}
+.nv td.nm{font-family:var(--f-body);font-weight:600}
+.nv tr.exti td.nm{color:var(--irq)} .nv tr.tim td.nm{color:var(--tim)}
+.nv .b{display:inline-block;min-width:1.8em;text-align:center;border-radius:4px;padding:1px 4px;background:var(--soft);color:var(--muted)}
+.nv tr.exti .b.one{background:var(--irq);color:var(--panel)}
+.nv tr.tim .b.one{background:var(--tim);color:var(--panel)}
+.nv td small{color:var(--muted);font-weight:500}
+.note{font-size:12px;color:var(--muted);line-height:1.45}
+.note b{color:var(--ink);font-weight:600}
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 10px;font-size:13px;align-items:baseline;margin:0}
+.kv dt{color:var(--muted);font-weight:500}
+.kv dd{margin:0;font:700 13px var(--f-mono);min-width:0;overflow-wrap:anywhere}
+.kv dd small{font:500 11.5px var(--f-body);color:var(--muted);margin-left:6px}
+.pill{font:700 11px var(--f-mono);padding:2px 8px;border-radius:999px;text-transform:none;letter-spacing:.02em}
+.p-thread{background:var(--stk-soft);color:var(--stk)} .p-exti{background:var(--irq-soft);color:var(--irq)} .p-tim{background:var(--tim-soft);color:var(--tim)}
+.led{width:13px;height:13px;border-radius:50%;background:var(--line);border:1px solid var(--muted);display:inline-block;vertical-align:-1px}
+.led.on{background:var(--led);border-color:var(--led);box-shadow:0 0 8px var(--led)}
+
+.stack{display:flex;flex-direction:column;gap:6px}
+.frame{border:1.5px solid var(--line);border-radius:8px;overflow:hidden}
+.frame.from-main{border-color:var(--stk)} .frame.from-exti{border-color:var(--irq)} .frame.from-tim{border-color:var(--tim)}
+.frame .fh{font:600 12px var(--f-body);padding:4px 8px;display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.frame.from-main .fh{background:var(--stk-soft);color:var(--stk)}
+.frame.from-exti .fh{background:var(--irq-soft);color:var(--irq)}
+.frame.from-tim .fh{background:var(--tim-soft);color:var(--tim)}
+.frame .fh small{font:500 10.5px var(--f-mono)}
+.w{display:grid;grid-template-columns:6.8em 4.6em minmax(0,1fr);gap:6px;padding:2px 8px;font:12px var(--f-mono);border-top:1px solid var(--line)}
+.w .a{color:var(--muted);font-size:10.5px}
+.w .r{color:var(--muted);font-weight:700}
+.w .v{font-weight:700;overflow-wrap:anywhere}
+.w .v small{font:500 11px var(--f-body);color:var(--muted);margin-left:5px}
+.w .v i{font-style:normal;color:var(--muted);font-weight:500}
+.msp{font:700 12px var(--f-mono);color:var(--stk);display:flex;align-items:center;gap:6px}
+.msp::before{content:"MSP ▶";background:var(--stk);color:var(--panel);padding:1px 6px;border-radius:4px}
+.base{font-size:12px;color:var(--muted);border:1px dashed var(--line);border-radius:8px;padding:5px 8px}
+.empty{font-size:12.5px;color:var(--muted)}
+
+.log{display:flex;flex-direction:column;gap:3px;max-height:520px;overflow:auto;font-size:12.5px}
+.li{display:grid;grid-template-columns:3.4em minmax(0,1fr);gap:6px;padding:3px 6px;border-radius:5px;border-left:3px solid var(--line);background:var(--soft)}
+.li .t{font:600 11px var(--f-mono);color:var(--muted)}
+.li code{font-size:11px}
+.li.exti{border-left-color:var(--irq)} .li.tim{border-left-color:var(--tim)} .li.hw{border-left-color:var(--rd)} .li.main{border-left-color:var(--stk)} .li.warn{border-left-color:var(--irq);background:var(--irq-soft)}
+code{font-family:var(--f-mono);font-size:.92em;background:var(--soft);padding:0 4px;border-radius:3px}
+
+@media (max-width:1200px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:700px){.grid{grid-template-columns:minmax(0,1fr)}}
+
+/* ---- one-screen layout ---- */
+.card h2 .try{flex:1;text-transform:none;letter-spacing:0;font-weight:500;font-size:11.5px;color:var(--muted);text-align:center;min-width:0}
+.grid{grid-template-columns:minmax(0,1.2fr) minmax(0,.9fr) minmax(0,1.15fr) minmax(0,1fr)}
+.w .v small{display:none}
+.trig,.prio label,.btn,.speed{white-space:nowrap}
+.trig small{font-size:11px}
+html,body{height:100%}
+.app{height:100%;max-width:none;display:grid;grid-template-rows:auto auto minmax(160px,35fr) minmax(0,65fr);gap:6px;padding-inline:12px;padding-block:6px}
+.top h1{font-size:23px}
+.top .sub{font-size:12px}
+.bar{gap:6px;flex-wrap:nowrap}
+.grp{padding:5px 8px;gap:6px;flex-wrap:nowrap}
+.btn{padding:6px 11px}
+.trig{padding:5px 11px;flex-direction:row;align-items:baseline;gap:6px}
+.prio{flex-direction:row;align-items:center;gap:5px}
+.prio small{display:none}
+.prio select{padding:2px 4px}
+.try{font-size:11.5px;line-height:1.35;flex:1 1 auto;min-width:0}
+.card{padding:7px 9px;gap:5px;min-height:0;overflow:hidden}
+.card h2{font-size:11px}
+.now{font-size:17px}
+.tlwrap{flex:1;min-height:0;overflow:hidden}
+#tl{width:100%;height:100%;min-width:0}
+.legend{font-size:11px;gap:10px}
+.grid{min-height:0;align-items:stretch;gap:6px}
+.body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:5px}
+.flag{padding:4px 6px;gap:2px 8px}
+.flag .bit{width:24px;height:24px;font-size:13px}
+.flag b{font-size:12px}
+.flag small{font-size:11px;line-height:1.3}
+.sec{font-size:12px}
+table.nv{font-size:11.5px}
+.nv td{padding:3px 4px}
+.nv th{padding:2px 4px}
+.note{font-size:11px;line-height:1.35}
+.kv{font-size:12px;gap:3px 8px}
+.kv dd{font-size:12px}
+.kv dd small{font-size:11px}
+.stack{gap:4px}
+.frame .fh{padding:2px 6px;font-size:11.5px}
+.w{padding:0 6px;font-size:11px;line-height:1.45}
+.log{max-height:none;font-size:11.5px}
+.li{padding:2px 5px}
+@media (max-width:1000px),(max-height:560px){
+  .app{height:auto;grid-template-rows:none}
+  .bar{flex-wrap:wrap}.grp{flex-wrap:wrap}
+  .tlwrap{height:250px;flex:none;overflow-x:auto}
+  #tl{min-width:640px}
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .body{max-height:420px}
+}
+@media (max-width:700px){.grid{grid-template-columns:minmax(0,1fr)}}
+
+/* ---- clickable registers + bit explorer (same design as the SysTick lab) ---- */
+[data-m],[data-r],[data-a]{cursor:pointer}
+.flag[data-m]:hover,.nv td[data-m]:hover,.kv dd[data-r]:hover,.kv dd[data-m]:hover,.w[data-a]:hover,.chip:hover{outline:2px solid var(--rd);outline-offset:-1px;border-radius:4px}
+.chips{display:flex;flex-wrap:wrap;gap:3px;align-items:center;font-size:11px;color:var(--muted)}
+.chip{font:600 10.5px var(--f-mono);border:1px solid var(--line);background:var(--soft);color:var(--ink);border-radius:5px;padding:1px 5px;cursor:pointer}
+.hint{font:500 11px var(--f-body);color:var(--rd);text-transform:none;letter-spacing:0}
+.bx-back{position:fixed;inset:0;z-index:50;background:rgba(10,14,12,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+.bx-back[hidden]{display:none}
+.bx{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;width:min(1000px,100%);max-height:calc(100% - 32px);overflow:auto;padding:14px 16px;display:grid;gap:10px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.bx-hd{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.bx-hd h3{margin:0;font:700 24px/1.1 var(--f-disp)}
+.bx-hd .sub{font:500 12px var(--f-mono);color:var(--muted);margin-top:3px}
+.bx-close{border:1px solid var(--line);background:var(--soft);border-radius:8px;padding:6px 12px;cursor:pointer;font-weight:600}
+.bx-val{font:700 16px var(--f-mono)}
+.bx-val small{font:500 12px var(--f-body);color:var(--muted);margin-left:8px}
+.bgrid-wrap{overflow-x:auto}
+.bgrid{display:grid;grid-template-columns:repeat(32,minmax(19px,1fr));min-width:640px;font-family:var(--f-mono)}
+.bgrid .bn{font-size:10px;color:var(--muted);text-align:center;padding-bottom:2px}
+.bgrid .bv{font-size:13px;font-weight:700;text-align:center;padding:5px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.bgrid .bv.one{color:var(--irq)}
+.bgrid .fl{font:600 10px/1.15 var(--f-body);text-align:center;padding:4px 1px;border-left:1px solid var(--panel);overflow-wrap:anywhere}
+.bgrid .fl.vert{writing-mode:vertical-rl;transform:rotate(180deg);padding:4px 0;height:56px;display:flex;align-items:center;justify-content:center}
+.bgrid .nib{border-left:2px solid var(--line)}
+.bgrid .fhi{background:var(--rd-soft)!important;color:var(--rd)!important;box-shadow:inset 0 2px 0 var(--rd),inset 0 -2px 0 var(--rd)}
+.bt tr.fhi td{background:var(--rd-soft);color:var(--rd)}
+.bt tr.dim td{color:var(--muted)}
+.c0{background:var(--irq-soft)} .c1{background:var(--stk-soft)} .c2{background:var(--rd-soft)} .c3{background:var(--tim-soft)} .cn{background:var(--panel)} .cr{background:var(--soft);color:var(--muted)}
+.bt{width:100%;border-collapse:collapse;font-size:12.5px}
+.bt th{font:600 11px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:4px 8px;border-bottom:1px solid var(--line)}
+.bt td{padding:4px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.bt td:nth-child(1),.bt td:nth-child(3){font-family:var(--f-mono);white-space:nowrap}
+.bt td:nth-child(2){font-weight:600;white-space:nowrap}
+.bx-src{font-size:12px;color:var(--muted)}
+.bx-src a{color:var(--rd)}
+
+/* ---- Flags + NVIC panel: NVIC table is the focus ---- */
+.body>*{flex-shrink:0}
+.flag{grid-template-columns:auto minmax(0,1fr);padding:4px 7px;gap:0 8px}
+.flag small{display:block;font-size:11.5px}
+table.nv{width:100%;border-collapse:separate;border-spacing:0 4px;font-size:13px;margin-top:2px}
+.nv th{font:600 11px var(--f-body);color:var(--muted);text-align:center;padding:2px 4px;border:0;letter-spacing:.02em}
+.nv th:first-child{text-align:left;font:700 13px var(--f-body);color:var(--ink)}
+.nv th small{display:block;font:500 10.5px var(--f-mono)}
+.nv td{padding:5px 4px;border:0;text-align:center;background:var(--soft)}
+.nv td:first-child{border-radius:8px 0 0 8px;text-align:left;padding-left:8px}
+.nv td:last-child{border-radius:0 8px 8px 0}
+.nv td.nm{font:700 14px var(--f-body)}
+.nv td.nm small{display:block;font:500 11px var(--f-mono);color:var(--muted)}
+.nv .b{min-width:2.1em;font-size:15px;padding:3px 6px;border-radius:6px;background:var(--panel);border:1px solid var(--line)}
+.nv tr.exti .b.one{border-color:var(--irq)} .nv tr.tim .b.one{border-color:var(--tim)}
+.nv .pr{font:700 18px var(--f-mono)}
+.nv tr.exti .pr{color:var(--irq)} .nv tr.tim .pr{color:var(--tim)}
+.rule{font-size:12px;color:var(--muted)} .rule b{color:var(--ink)}
+.more summary{font-size:11.5px;color:var(--rd);cursor:pointer}
+.more .chips{margin-top:4px}
+
+/* ---- CPU registers + main stack: same style as the SysTick lab ---- */
+.regs{display:flex;flex-direction:column;gap:4px;background:var(--soft);border:1.5px solid var(--line);border-radius:10px;padding:7px}
+.rgt{font:600 13.5px/1.1 var(--f-disp);color:var(--muted);margin-top:1px}
+.rgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+.reg{display:flex;justify-content:space-between;align-items:center;gap:4px;min-width:0;height:28px;background:var(--panel);border:1.5px solid var(--line);border-radius:5px;padding:0 6px}
+.reg .n{font:600 14px var(--f-disp);color:var(--muted);white-space:nowrap}
+.reg .val{font:700 12px var(--f-mono);color:var(--ink);white-space:nowrap}
+.reg.sp .n{color:var(--stk)}
+.reg.unk .val{color:var(--muted)}
+.regs .flags{background:var(--panel);border:1.5px solid var(--line);border-radius:5px;padding:3px 9px 4px;cursor:pointer}
+.regs .flags .fr{display:flex;gap:4px 14px;flex-wrap:wrap}
+.regs .flags .fr span{font:600 15px var(--f-disp);color:var(--muted)}
+.regs .flags .fr b{font:700 15px var(--f-mono);color:var(--ink);margin-left:5px}
+.regs .flags .fs{font:500 11px var(--f-mono);color:var(--muted)}
+.rnote{font:500 11.5px/1.4 var(--f-body);color:var(--muted)}
+.rnote b{color:var(--ink);font-weight:600}
+.reg:hover,.slot:hover,.regs .flags:hover,.o:hover{outline:2px solid var(--rd);outline-offset:-1px}
+#stkbody{position:relative}
+.stack{position:relative;display:flex;flex-direction:column;gap:2px;padding-left:50px}
+.mtop{display:grid;grid-template-columns:6.4em minmax(0,1fr);gap:6px;align-items:center;padding:1px 6px;font:500 10.5px var(--f-body);color:var(--muted);border:1px dashed var(--line);border-radius:5px}
+.mtop .a{font:500 10.5px var(--f-mono)} .mtop b{color:var(--ink)}
+.slot{display:grid;grid-template-columns:6.4em minmax(0,1fr);align-items:center;gap:6px;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font:11px var(--f-mono);min-height:19px}
+.slot .a{color:var(--muted);font-size:10.5px}
+.slot .v{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:7px;min-width:0;line-height:1.25}
+.slot .val{font-weight:700}
+.slot small{font:500 10.5px var(--f-body);color:var(--muted)}
+.slot.old{background:var(--soft)}
+.slot.f-main{background:var(--stk-soft);border-color:var(--stk)}
+.slot.f-exti{background:var(--irq-soft);border-color:var(--irq)}
+.slot.f-tim{background:var(--tim-soft);border-color:var(--tim)}
+.slot.free .val,.slot.stale .val{color:var(--muted);font-weight:500}
+.slot.stale{opacity:.75}
+.mk{position:absolute;left:0;top:0;width:48px;display:flex;align-items:center;gap:3px;transition:top .5s cubic-bezier(.4,.1,.2,1);font:700 10.5px var(--f-mono);z-index:2}
+.mk::after{content:"";flex:1;height:2px;background:var(--stk)}
+.mk em{font-style:normal;background:var(--stk);color:var(--panel);padding:1px 4px;border-radius:4px}
+.out .o{display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;padding:2px 6px;border-radius:6px;white-space:nowrap}
+.out .o b{font:700 14px var(--f-mono)}
+.out .o small{font:500 10.5px var(--f-mono);color:var(--muted)}
+@media (prefers-reduced-motion:reduce){.mk{transition:none}}
+
+/* compact fit at 1366x768 */
+.out.hdr{padding:2px 8px;margin-left:auto}
+.top{align-items:center}
+.top details{margin-left:8px}
+.reg{height:24px}
+.regs{gap:3px;padding:6px}
+.slot{min-height:16px;padding:0 6px;font-size:10.5px}
+.slot .v{line-height:1.2}
+.stack{gap:1px}
+.mtop{padding:0 6px}
+
+.slot small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.slot .v{flex-wrap:nowrap;overflow:hidden}
+.reg .val{font-size:11px;letter-spacing:-.02em}
+.reg{padding:0 5px}
+
+/* ---- code pane ---- */
+.ptabs{display:flex;gap:4px}
+.ptab{border:1px solid var(--line);background:var(--soft);border-radius:6px;padding:2px 9px;font:600 11px var(--f-body);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);cursor:pointer}
+.ptab.on{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+#codeBody{gap:5px}
+.cfn{border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.cfn.live.main{border-color:var(--stk)} .cfn.live.exti{border-color:var(--irq)} .cfn.live.tim{border-color:var(--tim)}
+.cfh{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:2px 7px;font:12px var(--f-mono);background:var(--soft)}
+.cfn.main .cfh b{color:var(--stk)} .cfn.exti .cfh b{color:var(--irq)} .cfn.tim .cfh b{color:var(--tim)}
+.cst{font:600 10.5px var(--f-body);padding:1px 6px;border-radius:999px;white-space:nowrap}
+.cst.cur{background:var(--ink);color:var(--panel)} .cst.paused{background:var(--line);color:var(--ink)} .cst.pend{background:var(--irq-soft);color:var(--irq)} .cst.idle{color:var(--muted)}
+.cfn pre{margin:0;padding:1px 0;font:11px/1.4 var(--f-mono);white-space:pre;overflow-x:auto}
+.cln{display:block;padding:0 7px}
+.cln i{font-style:normal;color:var(--muted)}
+.cln em{font-style:normal;font-weight:700;margin-left:6px;color:var(--muted)}
+.cfn.main .cln.cur{background:var(--stk-soft);box-shadow:inset 3px 0 0 var(--stk);font-weight:700}
+.cfn.exti .cln.cur{background:var(--irq-soft);box-shadow:inset 3px 0 0 var(--irq);font-weight:700}
+.cfn.tim .cln.cur{background:var(--tim-soft);box-shadow:inset 3px 0 0 var(--tim);font-weight:700}
+.cln.paused{outline:1.5px dashed var(--muted);outline-offset:-2px}
+#logBody[hidden],#codeBody[hidden]{display:none}
+@media (min-width:1001px) and (min-height:561px){.grid{grid-template-columns:minmax(0,1.1fr) minmax(0,.85fr) minmax(0,1fr) minmax(0,1.25fr)}}
+
+/* stack rows: address | register | value | meaning */
+.slot{grid-template-columns:6.2em 2.6em 6.4em minmax(0,1fr)!important}
+.slot .rg{font:700 11px var(--f-mono)}
+.slot.f-main .rg{color:var(--stk)} .slot.f-exti .rg{color:var(--irq)} .slot.f-tim .rg{color:var(--tim)}
+.slot .val{font-weight:700;white-space:nowrap}
+.slot.free .val,.slot.stale .val,.slot.stale .rg{color:var(--muted);font-weight:500}
+.slot small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+.fhd{font:600 11px var(--f-body);padding:1px 6px;margin-top:2px}
+.fhd.f-main{color:var(--stk)} .fhd.f-exti{color:var(--irq)} .fhd.f-tim{color:var(--tim)}
+.slot{grid-template-columns:6.4em 3em minmax(0,1fr)!important;font-size:10.5px}
+.slot small{font-size:10px}
+
+.cln .ad{display:inline-block;width:6.2em;color:var(--muted);font-size:10px;font-weight:500}
+.reg.dat .val{color:var(--stk);font-family:var(--f-body);font-weight:600}
+
+/* ---- code panel: C + disassembly (SysTick lab style) ---- */
+.cfh .lo{font:500 10px var(--f-mono);color:var(--muted);margin-left:auto;margin-right:6px}
+.lst{font:10.5px/1.38 var(--f-mono);padding:1px 0}
+.lst .cl{padding:1px 6px 0;font-weight:700;white-space:pre;overflow:hidden;text-overflow:ellipsis}
+.lst .gp{padding:0 6px;color:var(--muted);font-style:italic;font-size:10px;line-height:1.3}
+.lst .al{display:grid;grid-template-columns:5.4em 12.6em minmax(0,1fr);padding:0 6px;white-space:pre}
+.lst .al .ad{color:var(--muted)}
+.lst .al .cm{color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.lst .al.pre{color:var(--muted)}
+.cfn.main .al.cur{background:var(--stk-soft);box-shadow:inset 3px 0 0 var(--stk);font-weight:700}
+.cfn.exti .al.cur{background:var(--irq-soft);box-shadow:inset 3px 0 0 var(--irq);font-weight:700}
+.cfn.tim .al.cur{background:var(--tim-soft);box-shadow:inset 3px 0 0 var(--tim);font-weight:700}
+.lst .al.paused{outline:none;border:1.5px dashed var(--muted);border-radius:4px;margin:2px 4px;padding:1px 4px;line-height:1.35;font-weight:700}
+.slot.pad{border-style:dashed}
+.slot[class*="isr-"]{background:var(--soft)}
+@media (min-width:1001px) and (min-height:561px){.grid{grid-template-columns:minmax(0,1fr) minmax(0,.82fr) minmax(0,1fr) minmax(0,1.45fr)}}
+.lst{font-size:10.5px;line-height:1.15}
+#codeBody{position:relative}
+.slot{min-height:15px;line-height:1.15}
+.fhd{margin-top:1px;padding:0 6px}
+.cfh{padding:0 7px}
+#codeBody{gap:3px}
+
+/* ---- memory map (SysTick lab style) ---- */
+.mmd .sec>.slot,.mmd .sec>.gap{margin-left:44px}
+.slot.mem .rg{color:var(--ink);font:700 10px var(--f-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.slot.mem{background:var(--panel)}
+.slot.mem[data-m]{cursor:pointer}
+.slot.mem.code .rg{font-family:var(--f-body);font-size:10.5px}
+.slot.mem.code .val{color:var(--muted);font-weight:600}
+.slot.mem.hf{background:var(--soft)}
+.mm{flex:1;min-height:0;display:grid;grid-template-columns:84px minmax(0,1fr);gap:6px}
+.ladder{display:flex;flex-direction:column;gap:2px;min-height:0}
+.blk8{flex:1 1 0;min-height:0;border:1px solid var(--line);border-radius:6px;padding:2px 5px;display:flex;flex-direction:column;justify-content:center;gap:0;cursor:pointer;background:var(--panel);text-align:left;font:inherit;color:inherit;overflow:hidden}
+.blk8:disabled{cursor:default;opacity:.55}
+.blk8 .ba{font:500 9px var(--f-mono);color:var(--muted)}
+.blk8 .bn{font:600 10.5px/1.15 var(--f-body)}
+.blk8 .bs{font:500 9px/1.1 var(--f-body);color:var(--muted)}
+.blk8 .bt8{font:700 9px var(--f-mono)}
+.blk8.used{border-left:3px solid var(--stk)}
+.blk8.R{border-color:var(--rd);background:var(--rd-soft)} .blk8.R .bt8{color:var(--rd)}
+.blk8.W{border-color:var(--irq);background:var(--irq-soft)} .blk8.W .bt8{color:var(--irq)}
+.blk8.F .bt8{color:var(--muted)}
+.mmd{min-height:0;overflow:auto;display:flex;flex-direction:column;gap:4px;position:relative;padding-right:2px}
+.mmd .sec{border:0;padding:0;display:flex;flex-direction:column;gap:1px;flex-shrink:0;font:inherit;margin:0}
+.sechd{display:flex;gap:8px;align-items:baseline;flex-wrap:nowrap;white-space:nowrap;overflow:hidden;font:700 11.5px var(--f-body);padding:3px 6px 0 50px;color:var(--ink)}
+.sechd small{overflow:hidden;text-overflow:ellipsis}
+.sechd small{font:500 9.5px var(--f-mono);color:var(--muted)}
+.mr{display:grid;grid-template-columns:5.9em minmax(0,1fr) auto;gap:5px;align-items:center;padding:0 5px;border:1px solid transparent;border-radius:4px;font-size:11px;min-height:16px;line-height:1.15}
+.mr .a{font:500 10px var(--f-mono);color:var(--muted)}
+.mr .k{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mr .k small{font:500 10px var(--f-body);color:var(--muted);margin-left:5px}
+.mr .val{font:700 10.5px var(--f-mono)}
+.mr.code{cursor:default} .mr.code .val{font:600 10px var(--f-mono);color:var(--muted)}
+.mr.hf{background:var(--soft);border-color:var(--line)}
+.mr:not(.code):hover{outline:2px solid var(--rd);outline-offset:-1px}
+.gap{font:italic 500 10px var(--f-body);color:var(--muted);padding:0 5px}
+.mmd .stack{padding-left:44px}
+.mmd .mk{width:42px;transition:none}
+.note .kr,.note .kw{font:600 10.5px var(--f-mono);padding:0 5px;border-radius:4px}
+.note .kr{background:var(--rd-soft);color:var(--rd);border:1px solid var(--rd)} .note .kw{background:var(--irq-soft);color:var(--irq);border:1px solid var(--irq)}
+@media (min-width:1001px) and (min-height:561px){.grid{grid-template-columns:minmax(0,.97fr) minmax(0,.84fr) minmax(0,1.22fr) minmax(0,1.2fr)}}
+#stkbody .hw{background:var(--irq-soft)!important;border-color:var(--irq)!important;box-shadow:0 0 0 1.5px var(--irq)}
+#stkbody .hr{background:var(--rd-soft)!important;border-color:var(--rd)!important;box-shadow:0 0 0 1.5px var(--rd)}
+.reg .n{font-size:13px}
+.blk8 .bn{font-size:10px}
+.tip{position:fixed;z-index:60;pointer-events:none;max-width:340px;background:var(--ink);color:var(--panel);font:500 11.5px/1.35 var(--f-body);padding:4px 8px;border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.tip[hidden]{display:none}
+.slot .val{text-align:right;padding-right:2px}
+.lst .al{cursor:help}
+.lst .al:hover{background:var(--soft)}
+
+
+</style>
+
+<div class="app">
+  <header class="top">
+    <h1>EXTI Interrupt Lab</h1>
+    <span class="sub">STM32L476 (Nucleo-L476RG) · B1 on PC13 → EXTI line 13 → NVIC IRQ 40 · TIM2 → NVIC IRQ 28</span>
+    <div class="grp out hdr">
+      <span class="lbl">Board</span>
+      <span class="o" data-m="ODR"><span class="led" id="oLed"></span>LD2 <small>PA5</small></span>
+      <span class="o" data-m="count">count <b id="oCnt">0</b></span>
+      <span class="o" data-m="ticks">ticks <b id="oTck">0</b></span>
+    </div>
+    <details><summary>Sources</summary><div class="src"><ol id="srcs"></ol></div></details>
+  </header>
+
+  <div class="bar">
+    <div class="grp">
+      <button class="btn run" id="run">Pause</button>
+      <button class="btn" id="step">Step</button>
+      <button class="btn" id="reset">Reset</button>
+      <label class="speed" for="spd">Speed <input type="range" id="spd" min="1" max="10" value="4" style="width:80px"></label>
+    </div>
+    <div class="grp">
+      <span class="lbl">Trigger</span>
+      <button class="trig exti" id="tB1">Press B1<small>EXTI event</small></button>
+      <button class="trig tim" id="tTIM">TIM2 update<small>timer event</small></button>
+    </div>
+    <div class="grp">
+      <span class="lbl">Priority</span>
+      <div class="prio"><label for="pE">EXTI (IRQ 40)</label><select id="pE"></select><small id="pEb"></small></div>
+      <div class="prio"><label for="pT">TIM2 (IRQ 28)</label><select id="pT"></select><small id="pTb"></small></div>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2><span>Timeline</span><span class="try"><b>Try:</b> B1 once = single interrupt · B1, then TIM2 during the EXTI ISR: TIM2 <b>lower number</b> → nesting, <b>higher or equal</b> → pending then tail-chain</span><span class="now" id="now"></span></h2>
+    <div class="tlwrap"><svg id="tl" role="img" aria-label="Interrupt timeline"></svg></div>
+  </section>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Flags + NVIC <span class="hint">click a register: bit by bit</span></h2>
+      <div class="body"><div id="flags"></div>
+      <table class="nv" id="nv"></table>
+      <div class="rule" id="rule"></div>
+      <details class="more"><summary>Other registers (click for bits)</summary>
+        <div class="chips"><span class="chip" data-m="IDR">GPIOC_IDR</span><span class="chip" data-m="EXTICR4">SYSCFG_EXTICR4</span><span class="chip" data-m="FTSR1">EXTI_FTSR1</span><span class="chip" data-m="RTSR1">EXTI_RTSR1</span><span class="chip" data-m="IMR1">EXTI_IMR1</span><span class="chip" data-m="EMR1">EXTI_EMR1</span><span class="chip" data-m="SWIER1">EXTI_SWIER1</span><span class="chip" data-m="CR1">TIM2_CR1</span><span class="chip" data-m="DIER">TIM2_DIER</span><span class="chip" data-m="ICSR">SCB_ICSR</span><span class="chip" data-m="AIRCR">SCB_AIRCR</span><span class="chip" data-m="CCR">SCB_CCR</span><span class="chip" data-m="VTOR">SCB_VTOR</span><span class="chip" data-m="V56">vector 56</span><span class="chip" data-m="V44">vector 44</span></div>
+      </details></div>
+    </section>
+    <section class="card">
+      <h2>CPU registers <span class="hint">click: bits</span><span class="pill" id="mode"></span></h2>
+      <div class="body"><div class="regs" id="regs"></div></div>
+    </section>
+    <section class="card">
+      <h2>Memory map · 4 GB <span class="hint">click a row: bits</span></h2>
+      <div class="mm"><div class="ladder" id="ladder"></div><div class="mmd" id="stkbody"></div></div>
+      <div class="note"><span class="kr">read</span> <span class="kw">write</span> this step · stack: entry MSP − 32 (− 36 with padding), return + 32</div>
+    </section>
+    <section class="card">
+      <h2><span class="ptabs" role="tablist"><button class="ptab on" id="tabCode" role="tab" aria-selected="true">Code</button><button class="ptab" id="tabLog" role="tab" aria-selected="false">Event log</button></span><span class="hint" id="paneHint">C + disassembly · address = PC</span></h2>
+      <div class="body" id="codeBody"><div id="code"></div></div>
+      <div class="body" id="logBody" hidden><div class="log" id="log"></div></div>
+    </section>
+  </div>
+  <div class="tip" id="tip" hidden></div>
+  <div class="bx-back" id="bx" hidden role="dialog" aria-modal="true" aria-labelledby="bx-t">
+    <div class="bx">
+      <div class="bx-hd"><div><h3 id="bx-t"></h3><div class="sub" id="bx-sub"></div></div><button class="bx-close" id="bx-x">Close ✕</button></div>
+      <div class="bx-val" id="bx-v"></div>
+      <div class="bgrid-wrap"><div class="bgrid" id="bx-g"></div></div>
+      <table class="bt"><thead><tr><th>Bits</th><th>Field</th><th>Value</th><th>Meaning</th></tr></thead><tbody id="bx-tb"></tbody></table>
+      <div class="bx-src" id="bx-src"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=id=>document.getElementById(id);
+const hx=n=>'0x'+((n>>>0).toString(16).toUpperCase().padStart(8,'0'));
+const h2=n=>'0x'+((n>>>0).toString(16).toUpperCase().padStart(2,'0'));
+const ARMDOC='https://developer.arm.com/documentation/ddi0403/d/';
+const SRCS=[
+ ['ST stm32l476xx.h: EXTI15_10_IRQn = 40, TIM2_IRQn = 28, __NVIC_PRIO_BITS = 4, EXTI 0x40010400, TIM2 0x40000000','https://github.com/STMicroelectronics/cmsis-device-l4/blob/master/Include/stm32l476xx.h'],
+ ['ST startup_stm32l476xx.s: vector table entries TIM2_IRQHandler, EXTI15_10_IRQHandler','https://github.com/STMicroelectronics/cmsis-device-l4/blob/master/Source/Templates/gcc/startup_stm32l476xx.s'],
+ ['ST system_stm32l4xx.c: VTOR not written by default, stays 0','https://github.com/STMicroelectronics/cmsis-device-l4/blob/master/Source/Templates/system_stm32l4xx.c'],
+ ['CMSIS core_cm4.h: NVIC_SetPriority writes priority << 4 into the IPR byte','https://github.com/STMicroelectronics/cmsis_core/blob/master/Include/core_cm4.h'],
+ ['ST PM0214 Cortex-M4 programming manual: NVIC ISER / ISPR / IABR / IPR, exception number = IRQ + 16, EXC_RETURN 0xFFFFFFF1 / 0xFFFFFFF9, level-sensitive interrupts pend again if still asserted at return, tail-chaining','https://www.st.com/resource/en/programming_manual/pm0214-stm32-cortexm4-mcus-and-mpus-programming-manual-stmicroelectronics.pdf'],
+ ['ARMv7-M ARM: exception entry (8-word frame, SP − 0x20)',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/ARMv7-M-exception-model/Exception-entry-behavior'],
+ ['ARMv7-M ARM: exception return (EXC_RETURN, PopStack)',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/ARMv7-M-exception-model/Exception-return-behavior'],
+ ['ARMv7-M ARM: priorities and preemption (lower value = higher priority, equal priority does not preempt, equal pending priority: lower exception number first)',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/ARMv7-M-exception-model/Exception-priorities-and-preemption'],
+ ['ST RM0351 reference manual: EXTI_PR1 cleared by writing 1; TIM2_SR.UIF cleared by writing 0','https://www.st.com/resource/en/reference_manual/rm0351-stm32l47xxx-stm32l48xxx-stm32l49xxx-and-stm32l4axxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf'],
+ ['ST UM1724 Nucleo-64 user manual: B1 on PC13, LD2 on PA5','https://www.st.com/resource/en/user_manual/um1724-stm32-nucleo64-boards-mb1136-stmicroelectronics.pdf'],
+ ['Handler and return addresses from an arm-none-eabi-gcc -O0 build of a small EXTI + TIM2 program. Simplified: step durations are not real cycle counts, the ISRs\' own stack use is not shown, a higher-priority request that arrives during stacking is taken first (late arrival), pop preemption is not modelled.',null],
+ ['Lecture 9: Interrupts (YouTube). The video page could not be read when this lab was made (HTTP 429).','https://www.youtube.com/watch?v=uFBNf7F3l60']
+];
+$('srcs').innerHTML=SRCS.map(s=>`<li>${s[1]?`<a href="${s[1]}" target="_blank" rel="noopener">${s[0]}</a>`:s[0]}</li>`).join('');
+
+/* ---------- program: real -O0 disassembly of main.c (arm-none-eabi-gcc 13.2.1), executed one instruction per step ---------- */
+const BASE=0x20017FF8, WIN=64, HWD={stk:3,unstk:3,tail:2};
+const SLOTS=[]; for(let a=0x20017FFC;a>=0x20017FAC;a-=4) SLOTS.push(a);
+const FR=['R0','R1','R2','R3','R12','LR','PC','xPSR'];
+const WHO={main:'main()',exti:'EXTI ISR',tim:'TIM2 ISR'};
+const setNZ=v=>{S.f={N:(v>>>31)&1,Z:v===0?1:0,C:S.f?S.f.C:0,V:S.f?S.f.V:0};};
+const cmp0=v=>{S.f={N:(v>>>31)&1,Z:v===0?1:0,C:1,V:0};};
+const adds1=()=>{const v=S.r.R3, r=(v+1)>>>0; S.r.R3=r; S.f={N:(r>>>31)&1,Z:r===0?1:0,C:r===0?1:0,V:v===0x7FFFFFFF?1:0};};
+function pushR7(key){S.msp=(S.msp-4)>>>0; acc(S.msp,'w'); S.mem[S.msp]={v:S.r.R7,reg:'R7',c:'isr-'+key,n:'pushed by '+WHO[key]+' code (push {r7})'};}
+function popR7(){acc(S.msp,'r'); const w=S.mem[S.msp]; S.r.R7=w.v; w.c='stale'; w.n='free (old R7)'; S.msp=(S.msp+4)>>>0;}
+const C_=s=>({t:'C',s}), G_=s=>({t:'G',s}), A_=(a,i,c,x,o)=>Object.assign({t:'A',a,i,c,x},o||{});
+const PROG={
+ main:{fn:'main()',key:'main',lo:0x08000390,hi:0x0800045A,L:[
+  C_('int main(void) {'),
+  A_(0x08000390,'push   {r7, lr}','ran at start: LR, R7 → stack',null,{pre:1}),
+  A_(0x08000392,'add    r7, sp, #0','ran at start: R7 = 0x20017FF8',null,{pre:1}),
+  G_('⋮ 08000394–08000438: clocks, GPIO, EXTI, TIM2, NVIC_SetPriority(EXTI15_10_IRQn, {P40}), NVIC_SetPriority(TIM2_IRQn, {P28}), NVIC_EnableIRQ(EXTI15_10_IRQn)'),
+  C_('  NVIC_EnableIRQ(TIM2_IRQn);'),
+  A_(0x0800043A,'movs   r0, #28','R0 = IRQn 28',null,{pre:1}),
+  A_(0x0800043C,'bl     __NVIC_EnableIRQ','LR ← 0x08000441; leaves R0 = 1, R1 = 0xE000E100',null,{pre:1}),
+  C_('  TIM2->CR1 |= TIM_CR1_CEN;'),
+  G_('⋮ 08000440–0800044E: R2 = 0x40000000, R3 = 1'),
+  C_('  while (1) count++;'),
+  A_(0x08000450,'ldr    r3, [pc, #24]','r3 = [0800046C] = &count',()=>{S.r.R3=0x20000084;}),
+  A_(0x08000452,'ldr    r3, [r3, #0]','r3 = count',()=>{S.r.R3=S.count;}),
+  A_(0x08000454,'adds   r3, #1','r3 + 1 (sets flags)',()=>{adds1();}),
+  A_(0x08000456,'ldr    r2, [pc, #20]','r2 = [0800046C] = &count',()=>{S.r.R2=0x20000084;}),
+  A_(0x08000458,'str    r3, [r2, #0]','count = r3',()=>{S.count=S.r.R3;}),
+  A_(0x0800045A,'b.n    0x08000450','loop',()=>0x08000450),
+  C_('}')]},
+ 40:{fn:'EXTI15_10_IRQHandler()',key:'exti',lo:0x0800031C,hi:0x0800034C,L:[
+  C_('void EXTI15_10_IRQHandler(void) {'),
+  A_(0x0800031C,'push   {r7}','R7 → stack, MSP − 4',()=>{pushR7('exti');}),
+  A_(0x0800031E,'add    r7, sp, #0','R7 = MSP',()=>{S.r.R7=S.msp;}),
+  C_('  if (EXTI->PR1 & EXTI_PR1_PIF13) {'),
+  A_(0x08000320,'ldr    r3, [pc, #44]','r3 = [08000350] = EXTI base',()=>{S.r.R3=0x40010400;}),
+  A_(0x08000322,'ldr    r3, [r3, #20]','r3 = EXTI_PR1',()=>{S.r.R3=S.PR1<<13; log('exti',`EXTI ISR reads EXTI_PR1 = <code>${hx(S.r.R3)}</code>.`);}),
+  A_(0x08000324,'and.w  r3, r3, #0x2000','keep bit 13',()=>{S.r.R3&=0x2000;}),
+  A_(0x08000328,'cmp    r3, #0','sets flags',()=>{cmp0(S.r.R3);}),
+  A_(0x0800032A,'beq.n  0x08000344','skip if bit 13 = 0',()=>S.f.Z?0x08000344:undefined),
+  C_('    GPIOA->ODR ^= GPIO_ODR_OD5;'),
+  A_(0x0800032C,'mov.w  r3, #0x48000000','GPIOA base',()=>{S.r.R3=0x48000000;}),
+  A_(0x08000330,'ldr    r3, [r3, #20]','r3 = GPIOA_ODR',()=>{S.r.R3=S.led<<5;}),
+  A_(0x08000332,'mov.w  r2, #0x48000000','',()=>{S.r.R2=0x48000000;}),
+  A_(0x08000336,'eor.w  r3, r3, #0x20','flip bit 5',()=>{S.r.R3^=0x20;}),
+  A_(0x0800033A,'str    r3, [r2, #20]','GPIOA_ODR = r3 → LD2',()=>{S.led=(S.r.R3>>5)&1; log('exti',`EXTI ISR writes GPIOA_ODR = <code>${hx(S.r.R3)}</code>: LD2 ${S.led?'on':'off'}.`);}),
+  C_('    EXTI->PR1 = EXTI_PR1_PIF13;'),
+  A_(0x0800033C,'ldr    r3, [pc, #16]','r3 = [08000350] = EXTI base',()=>{S.r.R3=0x40010400;}),
+  A_(0x0800033E,'mov.w  r2, #0x2000','bit 13',()=>{S.r.R2=0x2000;}),
+  A_(0x08000342,'str    r2, [r3, #20]','write 1: clears PR1 bit 13',()=>{S.PR1=0; log('exti','EXTI ISR writes 1 to EXTI_PR1 bit 13: <b>flag cleared</b>.');}),
+  C_('}'),
+  A_(0x08000344,'nop','',()=>{}),
+  A_(0x08000346,'mov    sp, r7','MSP = R7',()=>{S.msp=S.r.R7;}),
+  A_(0x08000348,'ldr.w  r7, [sp], #4','R7 ← stack, MSP + 4',()=>{popR7();}),
+  A_(0x0800034C,'bx     lr','PC ← LR = EXC_RETURN',null,{ret:1})]},
+ 28:{fn:'TIM2_IRQHandler()',key:'tim',lo:0x08000354,hi:0x08000388,L:[
+  C_('void TIM2_IRQHandler(void) {'),
+  A_(0x08000354,'push   {r7}','R7 → stack, MSP − 4',()=>{pushR7('tim');}),
+  A_(0x08000356,'add    r7, sp, #0','R7 = MSP',()=>{S.r.R7=S.msp;}),
+  C_('  if (TIM2->SR & TIM_SR_UIF) {'),
+  A_(0x08000358,'mov.w  r3, #0x40000000','TIM2 base',()=>{S.r.R3=0x40000000;}),
+  A_(0x0800035C,'ldr    r3, [r3, #16]','r3 = TIM2_SR',()=>{S.r.R3=S.UIF; log('tim',`TIM2 ISR reads TIM2_SR = <code>${hx(S.r.R3)}</code>.`);}),
+  A_(0x0800035E,'and.w  r3, r3, #1','keep UIF',()=>{S.r.R3&=1;}),
+  A_(0x08000362,'cmp    r3, #0','sets flags',()=>{cmp0(S.r.R3);}),
+  A_(0x08000364,'beq.n  0x08000380','skip if UIF = 0',()=>S.f.Z?0x08000380:undefined),
+  C_('    TIM2->SR &= ~TIM_SR_UIF;'),
+  A_(0x08000366,'mov.w  r3, #0x40000000','',()=>{S.r.R3=0x40000000;}),
+  A_(0x0800036A,'ldr    r3, [r3, #16]','r3 = TIM2_SR',()=>{S.r.R3=S.UIF;}),
+  A_(0x0800036C,'mov.w  r2, #0x40000000','',()=>{S.r.R2=0x40000000;}),
+  A_(0x08000370,'bic.w  r3, r3, #1','UIF bit = 0',()=>{S.r.R3&=~1;}),
+  A_(0x08000374,'str    r3, [r2, #16]','write 0: clears UIF',()=>{S.UIF&=S.r.R3&1; log('tim','TIM2 ISR writes 0 to TIM2_SR.UIF: <b>flag cleared</b>.');}),
+  C_('    ticks++;'),
+  A_(0x08000376,'ldr    r3, [pc, #20]','r3 = [0800038C] = &ticks',()=>{S.r.R3=0x20000088;}),
+  A_(0x08000378,'ldr    r3, [r3, #0]','r3 = ticks',()=>{S.r.R3=S.ticks;}),
+  A_(0x0800037A,'adds   r3, #1','r3 + 1 (sets flags)',()=>{adds1();}),
+  A_(0x0800037C,'ldr    r2, [pc, #12]','r2 = [0800038C] = &ticks',()=>{S.r.R2=0x20000088;}),
+  A_(0x0800037E,'str    r3, [r2, #0]','ticks = r3',()=>{S.ticks=S.r.R3;}),
+  C_('}'),
+  A_(0x08000380,'nop','',()=>{}),
+  A_(0x08000382,'mov    sp, r7','MSP = R7',()=>{S.msp=S.r.R7;}),
+  A_(0x08000384,'ldr.w  r7, [sp], #4','R7 ← stack, MSP + 4',()=>{popR7();}),
+  A_(0x08000388,'bx     lr','PC ← LR = EXC_RETURN',null,{ret:1})]}
+};
+const MACC={0x08000450:[[0x0800046C,'r']],0x08000452:[[0x20000084,'r']],0x08000456:[[0x0800046C,'r']],0x08000458:[[0x20000084,'w']],
+ 0x08000320:[[0x08000350,'r']],0x08000322:[[0x40010414,'r']],0x08000330:[[0x48000014,'r']],0x0800033A:[[0x48000014,'w']],0x0800033C:[[0x08000350,'r']],0x08000342:[[0x40010414,'w']],
+ 0x0800035C:[[0x40000010,'r']],0x0800036A:[[0x40000010,'r']],0x08000374:[[0x40000010,'w']],0x08000376:[[0x0800038C,'r']],0x08000378:[[0x20000088,'r']],0x0800037C:[[0x0800038C,'r']],0x0800037E:[[0x20000088,'w']]};
+const acc=(a,m)=>{S.acc.push([a>>>0,m]);};
+const IMAP={};
+[ 'main',40,28].forEach(k=>{const A=PROG[k].L.filter(x=>x.t==='A'); A.forEach((x,i)=>{x.next=A[i+1]?A[i+1].a:null; x.fk=k; IMAP[x.a]=x;});});
+const ownerOf=pc=>pc>=0x08000390&&pc<=0x0800045A?'main':pc>=0x0800031C&&pc<=0x0800034C?40:pc>=0x08000354&&pc<=0x08000388?28:null;
+const SRC={40:{key:'exti',nm:'EXTI15_10',isr:'EXTI15_10_IRQHandler',short:'EXTI ISR',exc:56,vec:0x0800031D,vaddr:0x000000E0,iabr:'IABR1 bit 8',ispr:'ISPR1 bit 8'},
+           28:{key:'tim',nm:'TIM2',isr:'TIM2_IRQHandler',short:'TIM2 ISR',exc:44,vec:0x08000355,vaddr:0x000000B0,iabr:'IABR0 bit 28',ispr:'ISPR0 bit 28'}};
+let S, HIST, LOG;
+function reset(){
+  S={t:0,PR1:0,UIF:0,pend:{40:0,28:0},act:{40:0,28:0},prio:{40:+$('pE').value,28:+$('pT').value},
+     ctx:[{k:'main'}],hw:null,acc:[],fx:null,PC:0x08000450,LR:0x08000441,ipsr:0,msp:BASE,frames:[],count:0,ticks:0,led:0,mark:null,
+     r:{R0:1,R1:0xE000E100,R2:0x40000000,R3:1,R7:BASE,R12:null},f:{N:0,Z:0,C:1,V:0},
+     mem:{0x20017FFC:{v:0x0800063B,reg:'LR',c:'old',n:'pushed by main(): push {r7, lr} @08000390'},
+          0x20017FF8:{v:null,reg:'R7',c:'old',n:'pushed by main(): push {r7, lr} @08000390'}}};
+  HIST=[]; LOG=[];
+  log('main','Start: setup done, <code>main()</code> enters <code>while(1) count++</code> at <code>0x08000450</code> in Thread mode.');
+}
+function log(cls,html){LOG.unshift({t:S.t,cls,html}); if(LOG.length>150) LOG.pop();}
+const xpsrVal=()=>((S.f?((S.f.N<<31)|(S.f.Z<<30)|(S.f.C<<29)|(S.f.V<<28)):0)|0x01000000|S.ipsr)>>>0;
+const req=irq=>irq===40?S.PR1:S.UIF;   /* flag AND enable (EXTI_IMR1 bit 13 = 1, TIM2_DIER.UIE = 1) */
+const execPrio=()=>{const a=[40,28].filter(i=>S.act[i]).map(i=>S.prio[i]); return a.length?Math.min(...a):16;}  /* 16 = Thread level */
+const execLbl=p=>p>=16?'Thread (lowest)':String(p);
+function best(limit){
+  const c=[40,28].filter(i=>S.pend[i]&&S.prio[i]<limit).sort((a,b)=>S.prio[a]-S.prio[b]||SRC[a].exc-SRC[b].exc);
+  return c.length?c[0]:null;}
+function updPending(){
+  [40,28].forEach(i=>{ if(req(i)&&!S.act[i]&&!S.pend[i]){ S.pend[i]=1; acc(i===40?0xE000E204:0xE000E200,'w');
+    log(SRC[i].key,`NVIC: IRQ ${i} <b>pending</b> (${SRC[i].ispr} = 1). Exception number ${SRC[i].exc} = ${i} + 16.`);}});
+}
+function topISR(){const c=S.ctx[S.ctx.length-1]; return c.k==='isr'?c:null;}
+function startStacking(){
+  const top=S.ctx[S.ctx.length-1], from=top.k==='main'?'main':SRC[top.irq].key, sp=S.msp, pad=(sp&4)?1:0, nsp=((sp-0x20)&~4)>>>0;
+  const fr={addr:nsp,pad,from,pc:S.PC,lr:S.LR,xpsr:(xpsrVal()|(pad<<9))>>>0,uf:!S.f,f:S.f?{...S.f}:null,r:{R0:S.r.R0,R1:S.r.R1,R2:S.r.R2,R3:S.r.R3,R12:S.r.R12}};
+  S.frames.push(fr);
+  if(pad) S.mem[sp-4]={v:null,reg:'pad',c:'pad',n:'padding: MSP was not 8-byte aligned'};
+  FR.forEach((reg,i)=>{const v=reg==='LR'?fr.lr:reg==='PC'?fr.pc:reg==='xPSR'?fr.xpsr:fr.r[reg];
+    acc(nsp+4*i,'w'); S.mem[nsp+4*i]={v,reg,c:'f-'+from,uf:reg==='xPSR'&&fr.uf,n:reg==='PC'?'return address':reg==='LR'&&(v>>>28)===0xF?'EXC_RETURN':reg==='xPSR'?'IPSR '+(v&0x1FF)+(pad?' · bit 9 = padding':''):''};});
+  S.msp=nsp; S.hw={type:'stk',left:HWD.stk};
+  log('hw',`Hardware <b>stacking</b>: ${WHO[from]} stops before <code>${hx(fr.pc)}</code>. 8 registers saved, MSP <code>${hx(sp)}</code> → <code>${hx(nsp)}</code>${pad?' (−36: one padding word, MSP was not 8-byte aligned)':' (−32)'}.`);
+}
+function enter(irq,tail){
+  const s=SRC[irq], fr=S.frames[S.frames.length-1];
+  S.pend[irq]=0; S.act[irq]=1; S.ctx.push({k:'isr',irq}); acc(0x08000000+4*s.exc,'r'); acc(irq===40?0xE000E304:0xE000E300,'w');
+  S.PC=s.vec&~1; S.LR=fr.from==='main'?0xFFFFFFF9:0xFFFFFFF1; S.ipsr=s.exc;
+  S.r.R0=S.r.R1=S.r.R2=S.r.R3=S.r.R12=null; S.f=null;
+  log(s.key,`${tail?'Tail-chain: ':''}vector ${s.exc} at <code>${hx(s.vaddr)}</code> → PC = <code>${hx(S.PC)}</code>. LR = <code>${hx(S.LR)}</code> (EXC_RETURN). IPSR = ${s.exc}. R0–R3, R12, flags: UNKNOWN. NVIC: ${s.iabr} = 1 (active).`);
+}
+function doReturn(c){
+  const s=SRC[c.irq]; S.act[c.irq]=0; S.ctx.pop(); S.PC=S.LR; acc(c.irq===40?0xE000E304:0xE000E300,'w');
+  log(s.key,`${s.short}: <code>bx lr</code> loads EXC_RETURN <code>${hx(S.LR)}</code> into PC → exception return. NVIC: ${s.iabr} = 0.`);
+  if(req(c.irq)){ S.pend[c.irq]=1; log('warn',`Flag still 1 at return → IRQ ${c.irq} pending again.`); }
+  const b=best(execPrio());
+  if(b!==null){ S.hw={type:'tail',left:HWD.tail,target:b};
+    log('hw',`<b>Tail-chain</b>: ${SRC[b].nm} (priority ${S.prio[b]}) is pending, so the frame on the stack is reused: no unstacking, no new stacking.`);}
+  else S.hw={type:'unstk',left:HWD.unstk};
+}
+function finishHW(){
+  const h=S.hw; S.hw=null;
+  if(h.type==='stk'){ const b=best(execPrio()); if(b!==null) enter(b,false); }
+  else if(h.type==='tail'){ enter(h.target,true); }
+  else { const fr=S.frames.pop(), from=S.msp; S.msp=(fr.addr+0x20+(fr.pad?4:0))>>>0; S.PC=fr.pc; S.LR=fr.lr; S.ipsr=fr.xpsr&0x1FF;
+    Object.assign(S.r,fr.r); S.f=fr.f?{...fr.f}:null;
+    for(let i=0;i<8;i++){acc(fr.addr+4*i,'r'); const w=S.mem[fr.addr+4*i]; if(w){w.c='stale'; w.n='free (old '+w.reg+')';}}
+    if(fr.pad){const w=S.mem[fr.addr+0x20]; if(w){w.c='stale'; w.n='free (old padding)';}}
+    log('hw',`Hardware <b>unstacking</b>: 8 registers restored, MSP <code>${hx(from)}</code> → <code>${hx(S.msp)}</code>${fr.pad?' (+36, padding word skipped)':' (+32)'}. ${WHO[fr.from]} continues at <code>${hx(fr.pc)}</code>.`);}
+}
+function exec(){
+  const ins=IMAP[S.PC]; if(!ins) return 'main';
+  const key=PROG[ins.fk].key;
+  S.fx=ins.a; (MACC[ins.a]||[]).forEach(([a,m])=>acc(a,m));
+  if(ins.ret){ const c=topISR(); doReturn(c); return key; }
+  const nx=ins.x?ins.x():undefined;
+  S.PC=nx!==undefined?nx:ins.next;
+  return key;
+}
+function tick(){
+  S.t++; S.acc=[]; S.fx=null; updPending();
+  let run, hwType=null;
+  if(S.hw){ hwType=S.hw.type; run='hw'; }
+  else { const b=best(execPrio());
+    if(b!==null){ const top=S.ctx[S.ctx.length-1];
+      log(SRC[b].key,`Priority check: ${SRC[b].nm} priority ${S.prio[b]} beats running ${execLbl(execPrio())} → ${top.k==='isr'?'<b>nesting</b>: '+SRC[top.irq].short+' is paused':'interrupt taken'}.`);
+      startStacking(); hwType='stk'; run='hw'; }
+    else run=exec(); }
+  const r=run==='hw'?hwType:run;
+  const waiting=[40,28].filter(i=>S.act[i]&&r!==SRC[i].key).map(i=>SRC[i].key);
+  if(run==='hw'){ S.hw.left--; if(S.hw.left===0) finishHW(); }
+  HIST.push({t:S.t,run:r,wait:waiting,PR1:S.PR1,P40:S.pend[40],UIF:S.UIF,P28:S.pend[28],m:S.mark});
+  S.mark=null;
+  if(HIST.length>WIN) HIST.shift();
+}
+
+/* ---------- triggers ---------- */
+function trigger(irq){
+  if(irq===40){
+    if(S.PR1) log('warn','B1 pressed again, but EXTI_PR1 bit 13 is still 1: one flag bit cannot count two events. This press is lost.');
+    else { S.PR1=1; acc(0x40010414,'w'); log('exti','<b>Event</b>: B1 pressed, PC13 goes 1 → 0. EXTI sets the <b>flag</b> EXTI_PR1 bit 13 = 1 (falling edge enabled in FTSR1, line unmasked in IMR1).'); }
+    S.mark='B1';
+  } else {
+    if(S.UIF) log('warn','TIM2 update, but TIM2_SR.UIF is still 1: this update is lost.');
+    else { S.UIF=1; acc(0x40000010,'w'); log('tim','<b>Event</b>: TIM2 counter wraps. TIM2 sets the <b>flag</b> TIM2_SR.UIF = 1 (update interrupt enabled in DIER.UIE).'); }
+    S.mark='TIM2';
+  }
+  updPending(); render();
+}
+
+/* ---------- render ---------- */
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function renderTL(){
+  const svg=$('tl'), wrap=svg.parentNode, W=Math.max(640,wrap.clientWidth||900), HT=Math.max(100,Math.floor(wrap.getBoundingClientRect().height)||260), LBL=148, X0=LBL+8, CW=(W-X0-10)/WIN;
+  const lanes=[['PR1','EXTI_PR1 bit 13 (flag)','sig','--irq'],['P40','NVIC pending IRQ 40','sig','--irq'],['UIF','TIM2_SR.UIF (flag)','sig','--tim'],['P28','NVIC pending IRQ 28','sig','--tim'],
+    ['tim','TIM2_IRQHandler','cpu','--tim'],['exti','EXTI15_10_IRQHandler','cpu','--irq'],['main','main()','cpu','--stk'],['hw','Hardware','cpu','--hw']];
+  const GAP=HT<170?2:3, U=(HT-24-14-8*GAP-8)/(4*0.65+4), SH=U*0.65, CH=U, FS=Math.min(11.5,Math.max(9,CH*0.5)), FSS=Math.min(FS,Math.max(8,SH+2)); let y=24, out='';
+  const C={ink:css('--ink'),muted:css('--muted'),line:css('--line'),panel:css('--panel')}, ys={}, col={};
+  lanes.forEach(l=>{const h=l[2]==='sig'?SH:CH; ys[l[0]]=[y,h]; col[l[0]]=css(l[3]); y+=h+GAP; if(l[0]==='P28') y+=8;});
+  const H=y+14>HT+1.5?y+14:HT; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  const x=i=>X0+i*CW;
+  lanes.forEach(l=>{const [yy,h]=ys[l[0]];
+    out+=`<text x="${LBL}" y="${yy+h/2+4}" text-anchor="end" font-size="${l[2]==='sig'?FSS:FS}" font-family="IBM Plex Sans,system-ui,sans-serif" fill="${l[2]==='cpu'?col[l[0]]:C.muted}" font-weight="${l[2]==='cpu'?600:500}">${l[1]}</text>`;
+    out+=`<line x1="${X0}" x2="${W-10}" y1="${yy+h}" y2="${yy+h}" stroke="${C.line}"/>`;});
+  HIST.forEach((d,i)=>{ if(d.t%10===0&&x(HIST.length)-x(i)>70) out+=`<line x1="${x(i)}" x2="${x(i)}" y1="22" y2="${H-2}" stroke="${C.line}" stroke-dasharray="2 3"/><text x="${x(i)+2}" y="${H-2}" font-size="9.5" fill="${C.muted}" font-family="JetBrains Mono,monospace">${d.t}</text>`;});
+  ['PR1','P40','UIF','P28'].forEach(k=>{const [yy,h]=ys[k], c=col[k]; const pts=[];
+    HIST.forEach((d,i)=>{const v=d[k]?yy+2:yy+h-1; pts.push(`${x(i).toFixed(1)},${v}`,`${x(i+1).toFixed(1)},${v}`); if(d[k]) out+=`<rect x="${x(i)}" y="${yy+2}" width="${CW+.4}" height="${h-3}" fill="${c}" opacity=".16"/>`;});
+    if(pts.length) out+=`<polyline points="${pts.join(' ')}" fill="none" stroke="${c}" stroke-width="2"/>`;});
+  const runs=test=>{const r=[]; let s=null; HIST.forEach((d,i)=>{const on=test(d); if(on&&s===null) s=i; if(!on&&s!==null){r.push([s,i]); s=null;}}); if(s!==null) r.push([s,HIST.length]); return r;};
+  ['tim','exti','main'].forEach(k=>{const [yy,h]=ys[k];
+    runs(d=>k==='main'?d.run!=='main':d.wait.includes(k)).forEach(([a,b])=>{out+=`<rect x="${x(a)}" y="${yy+h/2-3}" width="${x(b)-x(a)}" height="6" rx="3" fill="${C.line}"/>`;});
+    runs(d=>d.run===k).forEach(([a,b])=>{out+=`<rect x="${x(a)}" y="${yy+2}" width="${Math.max(1,x(b)-x(a)-.5)}" height="${h-4}" rx="4" fill="${col[k]}"/>`;});});
+  { const [yy,h]=ys.hw; let s=null,tp=null;
+    const flush=i=>{ if(s===null) return; const w=x(i)-x(s); out+=`<rect x="${x(s)}" y="${yy+1}" width="${Math.max(1,w-.5)}" height="${h-2}" rx="3" fill="${col.hw}"/>`;
+      if(w>30&&h>=9) out+=`<text x="${x(s)+w/2}" y="${yy+h/2+Math.min(10.5,h-2)*0.36}" text-anchor="middle" font-size="${Math.min(10.5,h-2).toFixed(1)}" font-weight="700" font-family="IBM Plex Sans,system-ui,sans-serif" fill="${C.panel}">${({stk:'push',unstk:'pop',tail:'tail'})[tp]}</text>`; s=null;};
+    HIST.forEach((d,i)=>{const k=['stk','unstk','tail'].includes(d.run)?d.run:null; if(k!==tp) flush(i); if(k&&s===null) s=i; tp=k;});
+    flush(HIST.length); }
+  HIST.forEach((d,i)=>{ if(!d.m) return; const c=d.m==='B1'?col.PR1:col.UIF, ly=d.m==='B1'?10:21;
+    out+=`<line x1="${x(i)}" x2="${x(i)}" y1="${ly-9}" y2="${H-12}" stroke="${c}" stroke-width="1.5"/><text x="${x(i)+3}" y="${ly}" font-size="10.5" font-weight="700" font-family="IBM Plex Sans,system-ui,sans-serif" fill="${c}">${d.m==='B1'?'B1 pressed':'TIM2 update'}</text>`;});
+  out+=`<line x1="${x(HIST.length)}" x2="${x(HIST.length)}" y1="4" y2="${H-12}" stroke="${C.ink}" stroke-width="1.5"/><text x="${x(HIST.length)-3}" y="${H-2}" text-anchor="end" font-size="9.5" font-weight="700" fill="${C.ink}" font-family="JetBrains Mono,monospace">now t=${S.t}</text>`;
+  out+=`<text x="4" y="${H-2}" font-size="9.5" fill="${C.muted}" font-family="IBM Plex Sans,system-ui,sans-serif">thin bar = paused · x: steps (1 = 1 instr)</text>`;
+  svg.innerHTML=out;
+}
+/* ---------- code panel: C + disassembly with addresses ---------- */
+function fnState(k){
+  const top=S.ctx[S.ctx.length-1], i=k==='main'?0:S.ctx.findIndex(x=>x.k==='isr'&&x.irq===k);
+  if(i<0){ if(S.hw&&S.hw.type==='tail'&&S.hw.target===k) return {st:'Tail-chain: entering',cls:'pend'};
+    if(S.hw&&S.hw.type==='stk'&&best(execPrio())===k) return {st:'Stacking: entering',cls:'pend'};
+    return S.pend[k]?{st:'Pending (waiting)',cls:'pend'}:{st:'Idle',cls:'idle'}; }
+  if(!S.hw&&S.ctx[i]===top) return {st:'Running',cls:'cur',pc:S.PC};
+  const fr=S.frames[i]; return {st:S.hw&&S.hw.type==='unstk'&&S.ctx[i]===top?'Resuming':'Paused',cls:'paused',pc:fr?fr.pc:null};
+}
+function renderCode(){
+  let h='';
+  ['main',40,28].forEach(k=>{
+    const P=PROG[k], s=fnState(k), full=s.cls==='cur';
+    let rows=''; let lastC=null, lastCidx=-1;
+    const L=P.L.map(x=>x.t==='G'?{...x,s:x.s.replace('{P40}',S.prio[40]).replace('{P28}',S.prio[28])}:x);
+    if(full) L.forEach(x=>{rows+=row(x,s);});
+    else if(s.pc!=null){ const j=L.findIndex(x=>x.t==='A'&&x.a===s.pc); rows+=row(L[j],s); }
+    h+=`<div class="cfn ${P.key}${s.cls==='cur'||s.cls==='paused'?' live':''}"><div class="cfh"><b>${P.fn}</b><span class="lo">${hx(P.lo).slice(2)}</span><span class="cst ${s.cls}">${s.st}</span></div>${rows?'<div class="lst">'+rows+'</div>':''}</div>`;
+  });
+  $('code').innerHTML=h;
+  const cb=$('codeBody'), cur=cb.querySelector('.al.cur'); if(cur&&!cb.hidden){const y=cur.offsetTop; if(y<cb.scrollTop+20||y+cur.offsetHeight>cb.scrollTop+cb.clientHeight-20) cb.scrollTop=y-cb.clientHeight/2;}
+}
+const ITIP={"134218640": "PUSH {r7, lr}: MSP − 8, [MSP] = R7, [MSP+4] = LR. main() saves its return address (LR into Reset_Handler) and R7 because it uses them. Ran before the simulation started.", "134218642": "ADD r7, sp, #0: R7 = MSP. The -O0 compiler uses R7 as frame pointer (base for local variables). Ran before the simulation started.", "134218810": "MOVS r0, #28: R0 = 28. First function argument goes in R0 (AAPCS: R0–R3 carry arguments): TIM2_IRQn.", "134218812": "BL = Branch with Link: LR = next instruction 0x08000440 + 1 (Thumb bit) = 0x08000441, then jump to __NVIC_EnableIRQ. That function returns with bx lr to 0x08000440. This is why LR = 0x08000441 in main().", "134218832": "LDR r3, [pc, #24]: PC-relative load from the literal pool. Address = (0x08000450 + 4, rounded down to 4) + 24 = 0x0800046C. That Flash word holds 0x20000084 = &count. A 32-bit address does not fit inside a 16-bit instruction, so the compiler stores it in Flash.", "134218834": "LDR r3, [r3, #0]: load the word at address R3 + 0 = 0x20000084 (count in SRAM). R3 = count.", "134218836": "ADDS r3, #1: R3 = R3 + 1. The S suffix also updates the flags N, Z, C, V.", "134218838": "LDR r2, [pc, #20]: PC-relative load. Address = (0x08000456 + 4 = 0x0800045A, rounded down to 0x08000458) + 20 = 0x0800046C, the same literal: R2 = &count.", "134218840": "STR r3, [r2, #0]: store R3 at address R2 + 0 = 0x20000084. count = count + 1 is now in SRAM.", "134218842": "B.N 0x08000450: unconditional branch (16-bit) back to the top of while(1).", "134218524": "PUSH {r7} = store R7 on the stack: MSP − 4, then [MSP] = R7. This ISR uses R7 as its frame pointer. R7 is not in the 8-word hardware frame, and the AAPCS rule says R4–R11 must be preserved, so the compiler saves it here.", "134218526": "ADD r7, sp, #0: R7 = MSP. The -O0 compiler uses R7 as frame pointer (base for local variables).", "134218528": "LDR r3, [pc, #44]: PC-relative load. Address = (0x08000320 + 4) + 44 = 0x08000350. That Flash word holds 0x40010400 = EXTI base address.", "134218530": "LDR r3, [r3, #20]: read EXTI base + 20 = 0x40010414 = EXTI_PR1 (pending flags of all EXTI lines).", "134218532": "AND.W r3, r3, #0x2000: R3 = R3 AND 0x2000, keep only bit 13 (EXTI line 13 = PC13 = B1). .W = 32-bit Thumb-2 encoding. Flags not changed.", "134218536": "CMP r3, #0: compute R3 − 0 and set flags N, Z, C, V, result discarded. Z = 1 when bit 13 was 0.", "134218538": "BEQ.N 0x08000344: branch if equal (Z = 1). If line 13 did not cause the interrupt, skip the body. Not taken here.", "134218540": "MOV.W r3, #0x48000000: R3 = GPIOA base. This constant fits inside a 32-bit Thumb-2 instruction, so no literal is needed.", "134218544": "LDR r3, [r3, #20]: read GPIOA base + 20 = 0x48000014 = GPIOA_ODR (output data).", "134218546": "MOV.W r2, #0x48000000: R2 = GPIOA base again (-O0 does not reuse values between statements).", "134218550": "EOR.W r3, r3, #0x20: R3 = R3 XOR 0x20, flip bit 5 (PA5 = LED LD2).", "134218554": "STR r3, [r2, #20]: write R3 to 0x48000014 = GPIOA_ODR. LD2 toggles.", "134218556": "LDR r3, [pc, #16]: PC-relative load. Address = (0x0800033C + 4) + 16 = 0x08000350, the literal 0x40010400 = EXTI base.", "134218558": "MOV.W r2, #0x2000: R2 = 0x2000 = bit 13.", "134218562": "STR r2, [r3, #20]: write 0x2000 to 0x40010414 = EXTI_PR1. PR1 bits are cleared by WRITING 1 (rc_w1): line 13 flag clears, other lines are untouched (writing 0 does nothing).", "134218564": "NOP = no operation. The -O0 compiler emits it at the end of the if-block; it does nothing.", "134218566": "MOV sp, r7: MSP = R7. Puts the stack pointer back to where it was after the push (undo any local variables).", "134218568": "LDR.W r7, [sp], #4 = pop R7: load R7 from [MSP], then MSP + 4 (post-indexed). R7 gets back the value saved by push {r7}.", "134218572": "BX = Branch and eXchange: jump to the address in LR. In a normal function this is 'return from subroutine'. In an ISR, LR does not hold an address: hardware put EXC_RETURN there on entry (0xFFFFFFF9 = back to Thread mode/MSP, 0xFFFFFFF1 = back to a paused ISR). When PC is loaded with 0xFxxxxxxx in Handler mode, the CPU does not jump: it starts EXCEPTION RETURN, the hardware pops the 8 saved registers (or tail-chains to a pending interrupt) and continues the interrupted code.", "134218580": "PUSH {r7} = store R7 on the stack: MSP − 4, then [MSP] = R7. This ISR uses R7 as its frame pointer. R7 is not in the 8-word hardware frame, and the AAPCS rule says R4–R11 must be preserved, so the compiler saves it here.", "134218582": "ADD r7, sp, #0: R7 = MSP. The -O0 compiler uses R7 as frame pointer (base for local variables).", "134218584": "MOV.W r3, #0x40000000: R3 = TIM2 base address.", "134218588": "LDR r3, [r3, #16]: read TIM2 base + 16 = 0x40000010 = TIM2_SR (status flags).", "134218590": "AND.W r3, r3, #1: keep only bit 0 = UIF (update interrupt flag).", "134218594": "CMP r3, #0: compute R3 − 0 and set flags N, Z, C, V, result discarded. Z = 1 when UIF was 0.", "134218596": "BEQ.N 0x08000380: branch if equal (Z = 1). If UIF was 0, skip the body. Not taken here.", "134218598": "MOV.W r3, #0x40000000: R3 = TIM2 base again.", "134218602": "LDR r3, [r3, #16]: read TIM2_SR again (read-modify-write of TIM2->SR &= ~TIM_SR_UIF).", "134218604": "MOV.W r2, #0x40000000: R2 = TIM2 base.", "134218608": "BIC.W r3, r3, #1: bit clear, R3 = R3 AND NOT 1. Bit 0 (UIF) becomes 0, other bits kept.", "134218612": "STR r3, [r2, #16]: write R3 to 0x40000010 = TIM2_SR. SR flags are cleared by WRITING 0 (rc_w0): UIF clears; bits written as 1 are left unchanged.", "134218614": "LDR r3, [pc, #20]: PC-relative load. Address = (0x08000376 + 4 = 0x0800037A, rounded down to 0x08000378) + 20 = 0x0800038C. That Flash word holds 0x20000088 = &ticks.", "134218616": "LDR r3, [r3, #0]: read ticks from SRAM 0x20000088.", "134218618": "ADDS r3, #1: R3 = R3 + 1, flags updated.", "134218620": "LDR r2, [pc, #12]: PC-relative load. Address = (0x0800037C + 4) + 12 = 0x0800038C: R2 = &ticks.", "134218622": "STR r3, [r2, #0]: write R3 to 0x20000088: ticks = ticks + 1.", "134218624": "NOP = no operation. The -O0 compiler emits it at the end of the if-block; it does nothing.", "134218626": "MOV sp, r7: MSP = R7. Puts the stack pointer back to where it was after the push (undo any local variables).", "134218628": "LDR.W r7, [sp], #4 = pop R7: load R7 from [MSP], then MSP + 4 (post-indexed). R7 gets back the value saved by push {r7}.", "134218632": "BX = Branch and eXchange: jump to the address in LR. In a normal function this is 'return from subroutine'. In an ISR, LR does not hold an address: hardware put EXC_RETURN there on entry (0xFFFFFFF9 = back to Thread mode/MSP, 0xFFFFFFF1 = back to a paused ISR). When PC is loaded with 0xFxxxxxxx in Handler mode, the CPU does not jump: it starts EXCEPTION RETURN, the hardware pops the 8 saved registers (or tail-chains to a pending interrupt) and continues the interrupted code."};
+function row(x,s){
+  if(x.t==='C') return `<div class="cl">${esc(x.s)}</div>`;
+  if(x.t==='G') return `<div class="gp">${esc(x.s)}</div>`;
+  const cls=x.a===s.pc?' '+s.cls:x.pre?' pre':'';
+  return `<div class="al${cls}" data-tip="${tipA(ITIP[x.a]||x.i)}"><span class="ad">${hx(x.a).slice(2)}</span><span class="in">${esc(x.i)}</span><span class="cm">${x.c?'; '+esc(x.c):''}</span></div>`;
+}
+const VAL=v=>v===null||v===undefined?'UNKNOWN':hx(v);
+function renderCPU(){
+  const m=$('mode');
+  if(S.ipsr===0){m.className='pill p-thread';m.textContent='Thread mode';} else {m.className='pill '+(S.ipsr===44?'p-tim':'p-exti');m.textContent='Handler mode · IPSR '+S.ipsr;}
+  const xp=xpsrVal();
+  const RV={...S.r,MSP:S.msp,LR:S.LR,PC:S.PC,xPSR:xp,PRIMASK:0,BASEPRI:0};
+  const val=k=>k==='PRIMASK'?'0':k==='BASEPRI'?'0x00':k==='xPSR'&&!S.f?'0x?'+hx(xp).slice(3):VAL(RV[k]);
+  const box=k=>`<div class="reg${k==='MSP'?' sp':''}${RV[k]===null?' unk':''}" data-r="${k}"><span class="n">${k}</span><span class="val">${val(k)}</span></div>`;
+  const fl=n=>S.f?S.f[n]:'?';
+  const lrTxt=S.LR===0xFFFFFFF9?'EXC_RETURN: back to Thread mode':S.LR===0xFFFFFFF1?'EXC_RETURN: back to the paused ISR':'set by bl at 0800043C';
+  $('regs').innerHTML=`<div class="rgt">General-purpose</div>
+    <div class="rgrid">${['R0','R1','R2','R3','R7','R12'].map(box).join('')}</div>
+    <div class="rgt">Special (SP R13 · LR R14 · PC R15)</div>
+    <div class="rgrid">${['MSP','LR','PC','xPSR'].map(box).join('')}</div>
+    <div class="rgt">Interrupt masks</div>
+    <div class="rgrid">${['PRIMASK','BASEPRI'].map(box).join('')}</div>
+    <div class="flags" data-r="xPSR"><div class="fr"><span>N<b>${fl('N')}</b></span><span>Z<b>${fl('Z')}</b></span><span>C<b>${fl('C')}</b></span><span>V<b>${fl('V')}</b></span><span>T<b>1</b></span><span>IPSR<b>${S.ipsr}</b></span></div></div>
+    <div class="rnote"><b>LR</b>: ${lrTxt} · <b>R7</b>: saved by ISR code (push {r7}), not by hardware</div>`;
+}
+const BLK=[[7,'0xE000 0000','PPB: NVIC',''],[6,'0xC000 0000','unused',''],[5,'0xA000 0000','FMC regs',''],[4,'0x8000 0000','FMC/QSPI',''],[3,'0x6000 0000','FMC',''],[2,'0x4000 0000','Peripherals',''],[1,'0x2000 0000','SRAM',''],[0,'0x0000 0000','Code/Flash','']];
+const tipA=t=>esc(t).replace(/"/g,'&quot;');
+function mr(key,a,name,note,val,extra){return `<div class="slot mem${extra||''}"${key?` data-m="${key}"`:''} data-ad="${a>>>0}" data-tip="${tipA(name+(note?' · '+note:''))}"><span class="a">${hx(a)}</span><span class="rg"></span><span class="val">${val}</span></div>`;}
+function crow(lo,hi,name){const on=S.fx!=null&&S.fx>=lo&&S.fx<=hi; return `<div class="slot mem code${on?' hf':''}" data-tip="${tipA(name+' · code '+hx(lo)+' – '+hx(hi))}"><span class="a">${hx(lo)}</span><span class="rg"></span><span class="val">${on?'◀ fetch':''}</span></div>`;}
+function renderStack(){
+  const bin=(v,b)=>(v>>>b)&1;
+  const stack=SLOTS.map(a=>{const w=S.mem[a]; const c=w?w.c:'free'; const fi=S.frames.findIndex(f=>f.addr+0x1C===a);
+      const hd=fi<0?'':`<div class="fhd f-${S.frames[fi].from}">Frame ${fi+1} · ${WHO[S.frames[fi].from]} interrupted</div>`;
+      const v=!w?'—':w.reg==='pad'?'(unused)':w.uf?'0x?'+hx(w.v).slice(3):VAL(w.v);
+      return hd+`<div class="slot ${c}" data-a="${a}" data-ad="${a}" data-tip="${tipA(w?(w.reg==='pad'?'padding word':'stacked '+w.reg)+(w.n?' · '+w.n:''):'free')}"><span class="a">${hx(a)}</span><span class="rg">${w&&w.reg!=='pad'?w.reg:''}</span><span class="val">${v}</span></div>`;}).join('');
+  $('stkbody').innerHTML=`
+  <div class="sec" id="sec7"><div class="sechd">7 · Cortex-M4 PPB <small>0xE000 0000 – 0xE00F FFFF</small></div>
+    ${mr('VTOR',0xE000ED08,'SCB_VTOR','',hx(0))}${mr('ICSR',0xE000ED04,'SCB_ICSR','',hx(icsrVal()))}
+    ${mr('IPR10',0xE000E428,'NVIC_IPR10','IRQ 40 prio',hx(S.prio[40]<<4))}${mr('IPR7',0xE000E41C,'NVIC_IPR7','IRQ 28 prio',hx(S.prio[28]<<4))}
+    ${mr('IABR1',0xE000E304,'NVIC_IABR1','active',hx(S.act[40]<<8))}${mr('IABR0',0xE000E300,'NVIC_IABR0','active',hx((S.act[28]<<28)>>>0))}
+    ${mr('ISPR1',0xE000E204,'NVIC_ISPR1','pending',hx(S.pend[40]<<8))}${mr('ISPR0',0xE000E200,'NVIC_ISPR0','pending',hx((S.pend[28]<<28)>>>0))}
+    ${mr('ISER1',0xE000E104,'NVIC_ISER1','enable',hx(0x100))}${mr('ISER0',0xE000E100,'NVIC_ISER0','enable',hx(0x10000000))}</div>
+  <div class="sec" id="sec2"><div class="sechd">2 · Peripherals <small>0x4000 0000 – 0x5FFF FFFF</small></div>
+    ${mr('IDR',0x48000810,'GPIOC_IDR','B1 = PC13','bit13 = 1')}${mr('ODR',0x48000014,'GPIOA_ODR','LD2 = PA5',hx(S.led<<5))}
+    ${mr('PR1',0x40010414,'EXTI_PR1','flag',hx(S.PR1<<13))}${mr('FTSR1',0x4001040C,'EXTI_FTSR1','',hx(0x2000))}${mr('IMR1',0x40010400,'EXTI_IMR1','',hx(0xFF822000))}
+    ${mr('SR',0x40000010,'TIM2_SR','flag',hx(S.UIF))}</div>
+  <div class="sec" id="sec1"><div class="sechd">1 · SRAM1 96 KB <small>0x2000 0000 – 0x2001 7FFF</small></div>
+    <div class="gap">0x20018000 = _estack: initial MSP (vector 0). Stack grows down.</div>
+    <div class="stack" id="stack"><div class="mk" id="mk-msp"><em>MSP</em></div>${stack}</div>
+    <div class="gap">⋮ free SRAM</div>
+    ${mr('ticks',0x20000088,'ticks','= '+S.ticks+' decimal',hx(S.ticks))}${mr('count',0x20000084,'count','= '+S.count+' decimal',hx(S.count))}</div>
+  <div class="sec" id="sec0"><div class="sechd">0 · Code: Flash 1 MB <small>0x0800 0000 – 0x080F FFFF</small></div>
+    ${mr('LIT46C',0x0800046C,'literal: &count','used by main',hx(0x20000084))}${crow(0x08000390,0x0800045A,'main()')}
+    ${mr('LIT38C',0x0800038C,'literal: &ticks','used by TIM2 ISR',hx(0x20000088))}${crow(0x08000354,0x0800038A,'TIM2_IRQHandler')}
+    ${mr('LIT350',0x08000350,'literal: EXTI base','used by EXTI ISR',hx(0x40010400))}${crow(0x0800031C,0x0800034E,'EXTI15_10_IRQHandler')}
+    ${mr('V56',0x080000E0,'vector 56','EXTI15_10',hx(0x0800031D))}${mr('V44',0x080000B0,'vector 44','TIM2',hx(0x08000355))}
+    ${mr('V0',0x08000000,'vector 0','initial MSP',hx(0x20018000))}
+    <div class="gap">Flash is also seen at 0x0000 0000 (boot alias): VTOR = 0 reads vectors there.</div></div>`;
+  /* highlight accesses */
+  const blkAcc={};
+  S.acc.forEach(([a,m])=>{ document.querySelectorAll(`#stkbody [data-ad="${a}"]`).forEach(el=>el.classList.add(m==='w'?'hw':'hr')); const b=a>>>29; blkAcc[b]=(blkAcc[b]==='W'||m==='w')?'W':'R'; });
+  if(S.fx!=null&&!blkAcc[0]) blkAcc[0]='F';
+  $('ladder').innerHTML=BLK.map(([n,ad,nm,sub])=>`<button class="blk8 ${blkAcc[n]||''}${[0,1,2,7].includes(n)?' used':''}" ${[0,1,2,7].includes(n)?`data-sec="sec${n}"`:'disabled'}><span class="ba">${ad}</span><span class="bn">${n} · ${nm}</span>${sub?`<span class="bs">${sub}</span>`:''}<span class="bt8">${blkAcc[n]==='W'?'WRITE':blkAcc[n]==='R'?'READ':blkAcc[n]==='F'?'FETCH':''}</span></button>`).join('');
+  $('ladder').querySelectorAll('[data-sec]').forEach(b=>b.onclick=()=>{const t=$(b.dataset.sec); $('stkbody').scrollTop=t.offsetTop-4;});
+  const stk=$('stack'), mk=$('mk-msp'), sl=stk.querySelector(`.slot[data-a="${S.msp}"]`); if(sl) mk.style.top=(sl.offsetTop+sl.offsetHeight/2-10)+'px';
+  /* keep the action in view: writes first, then reads, then MSP */
+  const bb=$('stkbody'), inIsr=S.frames.length>0, tgt=bb.querySelector('.stack .slot.hw')||bb.querySelector('.stack .slot.hr')||(inIsr?sl:null)||bb.querySelector('.hw')||bb.querySelector('.hr')||sl;
+  if(tgt){ let y=tgt.offsetTop, el=tgt.offsetParent; while(el&&el!==bb){ y+=el.offsetTop; el=el.offsetParent; }
+    if(y<bb.scrollTop||y+tgt.offsetHeight>bb.scrollTop+bb.clientHeight) bb.scrollTop=y-bb.clientHeight/2; }
+}
+function render(){
+  const top=topISR(), nk=S.hw?S.hw.type:(top?SRC[top.irq].key:'main');
+  const NOW={main:['main','CPU runs main()'],exti:['exti','CPU runs the EXTI ISR'],tim:['tim','CPU runs the TIM2 ISR'],stk:['hw','Hardware is stacking (saving 8 registers)'],unstk:['hw','Hardware is unstacking (restoring 8 registers)'],tail:['hw','Hardware tail-chains to the next ISR']};
+  $('now').className='now '+NOW[nk][0]; $('now').textContent=NOW[nk][1];
+  renderTL();
+  $('flags').innerHTML=`
+   <div class="flag exti${S.PR1?' on':''}" data-m="PR1"><span class="bit">${S.PR1}</span><div><b>EXTI_PR1 bit 13</b><small>set by B1 falling edge · ISR clears: write 1</small></div></div>
+   <div class="flag tim${S.UIF?' on':''}" data-m="SR"><span class="bit">${S.UIF}</span><div><b>TIM2_SR bit 0 UIF</b><small>set by timer update · ISR clears: write 0</small></div></div>`;
+  const b=v=>`<span class="b${v?' one':''}">${v}</span>`;
+  $('nv').innerHTML=`<thead><tr><th>NVIC</th><th>Enable<small>ISER</small></th><th>Pending<small>ISPR</small></th><th>Active<small>IABR</small></th><th>Priority<small>IPR</small></th></tr></thead><tbody>
+   <tr class="exti"><td class="nm">EXTI15_10<small>IRQ 40 · exc 56</small></td><td data-m="ISER1">${b(1)}</td><td data-m="ISPR1">${b(S.pend[40])}</td><td data-m="IABR1">${b(S.act[40])}</td><td data-m="IPR10"><span class="pr">${S.prio[40]}</span></td></tr>
+   <tr class="tim"><td class="nm">TIM2<small>IRQ 28 · exc 44</small></td><td data-m="ISER0">${b(1)}</td><td data-m="ISPR0">${b(S.pend[28])}</td><td data-m="IABR0">${b(S.act[28])}</td><td data-m="IPR7"><span class="pr">${S.prio[28]}</span></td></tr></tbody>`;
+  $('rule').innerHTML=`CPU running at: <b>${execPrio()>=16?'Thread level (main)':'priority '+execPrio()}</b> · <b>lower number = more urgent</b>; only a lower number preempts, equal or higher waits as pending.`;
+  renderCPU(); renderStack();
+  $('oLed').className='led'+(S.led?' on':''); $('oCnt').textContent=S.count; $('oTck').textContent=S.ticks;
+  renderCode();
+  $('log').innerHTML=LOG.map(l=>`<div class="li ${l.cls}"><span class="t">t=${l.t}</span><span>${l.html}</span></div>`).join('');
+}
+
+const HF={"IMR1":[[31,31,"IM31","Interrupt Mask on line 31"],[30,30,"IM30","Interrupt Mask on line 30"],[29,29,"IM29","Interrupt Mask on line 29"],[28,28,"IM28","Interrupt Mask on line 28"],[27,27,"IM27","Interrupt Mask on line 27"],[26,26,"IM26","Interrupt Mask on line 26"],[25,25,"IM25","Interrupt Mask on line 25"],[24,24,"IM24","Interrupt Mask on line 24"],[23,23,"IM23","Interrupt Mask on line 23"],[22,22,"IM22","Interrupt Mask on line 22"],[21,21,"IM21","Interrupt Mask on line 21"],[20,20,"IM20","Interrupt Mask on line 20"],[19,19,"IM19","Interrupt Mask on line 19"],[18,18,"IM18","Interrupt Mask on line 18"],[17,17,"IM17","Interrupt Mask on line 17"],[16,16,"IM16","Interrupt Mask on line 16"],[15,15,"IM15","Interrupt Mask on line 15"],[14,14,"IM14","Interrupt Mask on line 14"],[13,13,"IM13","Interrupt Mask on line 13"],[12,12,"IM12","Interrupt Mask on line 12"],[11,11,"IM11","Interrupt Mask on line 11"],[10,10,"IM10","Interrupt Mask on line 10"],[9,9,"IM9","Interrupt Mask on line 9"],[8,8,"IM8","Interrupt Mask on line 8"],[7,7,"IM7","Interrupt Mask on line 7"],[6,6,"IM6","Interrupt Mask on line 6"],[5,5,"IM5","Interrupt Mask on line 5"],[4,4,"IM4","Interrupt Mask on line 4"],[3,3,"IM3","Interrupt Mask on line 3"],[2,2,"IM2","Interrupt Mask on line 2"],[1,1,"IM1","Interrupt Mask on line 1"],[0,0,"IM0","Interrupt Mask on line 0"]],"EMR1":[[31,31,"EM31","Event Mask on line 31"],[30,30,"EM30","Event Mask on line 30"],[29,29,"EM29","Event Mask on line 29"],[28,28,"EM28","Event Mask on line 28"],[27,27,"EM27","Event Mask on line 27"],[26,26,"EM26","Event Mask on line 26"],[25,25,"EM25","Event Mask on line 25"],[24,24,"EM24","Event Mask on line 24"],[23,23,"EM23","Event Mask on line 23"],[22,22,"EM22","Event Mask on line 22"],[21,21,"EM21","Event Mask on line 21"],[20,20,"EM20","Event Mask on line 20"],[19,19,"EM19","Event Mask on line 19"],[18,18,"EM18","Event Mask on line 18"],[17,17,"EM17","Event Mask on line 17"],[16,16,"EM16","Event Mask on line 16"],[15,15,"EM15","Event Mask on line 15"],[14,14,"EM14","Event Mask on line 14"],[13,13,"EM13","Event Mask on line 13"],[12,12,"EM12","Event Mask on line 12"],[11,11,"EM11","Event Mask on line 11"],[10,10,"EM10","Event Mask on line 10"],[9,9,"EM9","Event Mask on line 9"],[8,8,"EM8","Event Mask on line 8"],[7,7,"EM7","Event Mask on line 7"],[6,6,"EM6","Event Mask on line 6"],[5,5,"EM5","Event Mask on line 5"],[4,4,"EM4","Event Mask on line 4"],[3,3,"EM3","Event Mask on line 3"],[2,2,"EM2","Event Mask on line 2"],[1,1,"EM1","Event Mask on line 1"],[0,0,"EM0","Event Mask on line 0"]],"RTSR1":[[22,22,"RT22","Rising trigger event configuration bit of line 22"],[21,21,"RT21","Rising trigger event configuration bit of line 21"],[20,20,"RT20","Rising trigger event configuration bit of line 20"],[19,19,"RT19","Rising trigger event configuration bit of line 19"],[18,18,"RT18","Rising trigger event configuration bit of line 18"],[16,16,"RT16","Rising trigger event configuration bit of line 16"],[15,15,"RT15","Rising trigger event configuration bit of line 15"],[14,14,"RT14","Rising trigger event configuration bit of line 14"],[13,13,"RT13","Rising trigger event configuration bit of line 13"],[12,12,"RT12","Rising trigger event configuration bit of line 12"],[11,11,"RT11","Rising trigger event configuration bit of line 11"],[10,10,"RT10","Rising trigger event configuration bit of line 10"],[9,9,"RT9","Rising trigger event configuration bit of line 9"],[8,8,"RT8","Rising trigger event configuration bit of line 8"],[7,7,"RT7","Rising trigger event configuration bit of line 7"],[6,6,"RT6","Rising trigger event configuration bit of line 6"],[5,5,"RT5","Rising trigger event configuration bit of line 5"],[4,4,"RT4","Rising trigger event configuration bit of line 4"],[3,3,"RT3","Rising trigger event configuration bit of line 3"],[2,2,"RT2","Rising trigger event configuration bit of line 2"],[1,1,"RT1","Rising trigger event configuration bit of line 1"],[0,0,"RT0","Rising trigger event configuration bit of line 0"]],"FTSR1":[[22,22,"FT22","Falling trigger event configuration bit of line 22"],[21,21,"FT21","Falling trigger event configuration bit of line 21"],[20,20,"FT20","Falling trigger event configuration bit of line 20"],[19,19,"FT19","Falling trigger event configuration bit of line 19"],[18,18,"FT18","Falling trigger event configuration bit of line 18"],[16,16,"FT16","Falling trigger event configuration bit of line 16"],[15,15,"FT15","Falling trigger event configuration bit of line 15"],[14,14,"FT14","Falling trigger event configuration bit of line 14"],[13,13,"FT13","Falling trigger event configuration bit of line 13"],[12,12,"FT12","Falling trigger event configuration bit of line 12"],[11,11,"FT11","Falling trigger event configuration bit of line 11"],[10,10,"FT10","Falling trigger event configuration bit of line 10"],[9,9,"FT9","Falling trigger event configuration bit of line 9"],[8,8,"FT8","Falling trigger event configuration bit of line 8"],[7,7,"FT7","Falling trigger event configuration bit of line 7"],[6,6,"FT6","Falling trigger event configuration bit of line 6"],[5,5,"FT5","Falling trigger event configuration bit of line 5"],[4,4,"FT4","Falling trigger event configuration bit of line 4"],[3,3,"FT3","Falling trigger event configuration bit of line 3"],[2,2,"FT2","Falling trigger event configuration bit of line 2"],[1,1,"FT1","Falling trigger event configuration bit of line 1"],[0,0,"FT0","Falling trigger event configuration bit of line 0"]],"SWIER1":[[22,22,"SWI22","Software Interrupt on line 22"],[21,21,"SWI21","Software Interrupt on line 21"],[20,20,"SWI20","Software Interrupt on line 20"],[19,19,"SWI19","Software Interrupt on line 19"],[18,18,"SWI18","Software Interrupt on line 18"],[16,16,"SWI16","Software Interrupt on line 16"],[15,15,"SWI15","Software Interrupt on line 15"],[14,14,"SWI14","Software Interrupt on line 14"],[13,13,"SWI13","Software Interrupt on line 13"],[12,12,"SWI12","Software Interrupt on line 12"],[11,11,"SWI11","Software Interrupt on line 11"],[10,10,"SWI10","Software Interrupt on line 10"],[9,9,"SWI9","Software Interrupt on line 9"],[8,8,"SWI8","Software Interrupt on line 8"],[7,7,"SWI7","Software Interrupt on line 7"],[6,6,"SWI6","Software Interrupt on line 6"],[5,5,"SWI5","Software Interrupt on line 5"],[4,4,"SWI4","Software Interrupt on line 4"],[3,3,"SWI3","Software Interrupt on line 3"],[2,2,"SWI2","Software Interrupt on line 2"],[1,1,"SWI1","Software Interrupt on line 1"],[0,0,"SWI0","Software Interrupt on line 0"]],"PR1":[[22,22,"PIF22","Pending bit for line 22"],[21,21,"PIF21","Pending bit for line 21"],[20,20,"PIF20","Pending bit for line 20"],[19,19,"PIF19","Pending bit for line 19"],[18,18,"PIF18","Pending bit for line 18"],[16,16,"PIF16","Pending bit for line 16"],[15,15,"PIF15","Pending bit for line 15"],[14,14,"PIF14","Pending bit for line 14"],[13,13,"PIF13","Pending bit for line 13"],[12,12,"PIF12","Pending bit for line 12"],[11,11,"PIF11","Pending bit for line 11"],[10,10,"PIF10","Pending bit for line 10"],[9,9,"PIF9","Pending bit for line 9"],[8,8,"PIF8","Pending bit for line 8"],[7,7,"PIF7","Pending bit for line 7"],[6,6,"PIF6","Pending bit for line 6"],[5,5,"PIF5","Pending bit for line 5"],[4,4,"PIF4","Pending bit for line 4"],[3,3,"PIF3","Pending bit for line 3"],[2,2,"PIF2","Pending bit for line 2"],[1,1,"PIF1","Pending bit for line 1"],[0,0,"PIF0","Pending bit for line 0"]],"EXTICR4":[[14,12,"EXTI15","EXTI 15 configuration"],[10,8,"EXTI14","EXTI 14 configuration"],[6,4,"EXTI13","EXTI 13 configuration"],[2,0,"EXTI12","EXTI 12 configuration"]],"CR1":[[11,11,"UIFREMAP","Update interrupt flag remap"],[9,8,"CKD","CKD[1:0] bits (clock division)"],[7,7,"ARPE","Auto-reload preload enable"],[6,5,"CMS","CMS[1:0] bits (Center-aligned mode selection)"],[4,4,"DIR","Direction"],[3,3,"OPM","One pulse mode"],[2,2,"URS","Update request source"],[1,1,"UDIS","Update disable"],[0,0,"CEN","Counter enable"]],"DIER":[[14,14,"TDE","Trigger DMA request enable"],[12,12,"CC4DE","Capture/Compare 4 DMA request enable"],[11,11,"CC3DE","Capture/Compare 3 DMA request enable"],[10,10,"CC2DE","Capture/Compare 2 DMA request enable"],[9,9,"CC1DE","Capture/Compare 1 DMA request enable"],[8,8,"UDE","Update DMA request enable"],[6,6,"TIE","Trigger interrupt enable"],[4,4,"CC4IE","Capture/Compare 4 interrupt enable"],[3,3,"CC3IE","Capture/Compare 3 interrupt enable"],[2,2,"CC2IE","Capture/Compare 2 interrupt enable"],[1,1,"CC1IE","Capture/Compare 1 interrupt enable"],[0,0,"UIE","Update interrupt enable"]],"SR":[[12,12,"CC4OF","Capture/Compare 4 Overcapture Flag"],[11,11,"CC3OF","Capture/Compare 3 Overcapture Flag"],[10,10,"CC2OF","Capture/Compare 2 Overcapture Flag"],[9,9,"CC1OF","Capture/Compare 1 Overcapture Flag"],[6,6,"TIF","Trigger interrupt Flag"],[4,4,"CC4IF","Capture/Compare 4 interrupt Flag"],[3,3,"CC3IF","Capture/Compare 3 interrupt Flag"],[2,2,"CC2IF","Capture/Compare 2 interrupt Flag"],[1,1,"CC1IF","Capture/Compare 1 interrupt Flag"],[0,0,"UIF","Update interrupt Flag"]]};
+const IRQN=["WWDG", "PVD_PVM", "TAMP_STAMP", "RTC_WKUP", "FLASH", "RCC", "EXTI0", "EXTI1", "EXTI2", "EXTI3", "EXTI4", "DMA1_Channel1", "DMA1_Channel2", "DMA1_Channel3", "DMA1_Channel4", "DMA1_Channel5", "DMA1_Channel6", "DMA1_Channel7", "ADC1_2", "CAN1_TX", "CAN1_RX0", "CAN1_RX1", "CAN1_SCE", "EXTI9_5", "TIM1_BRK_TIM15", "TIM1_UP_TIM16", "TIM1_TRG_COM_TIM17", "TIM1_CC", "TIM2", "TIM3", "TIM4", "I2C1_EV", "I2C1_ER", "I2C2_EV", "I2C2_ER", "SPI1", "SPI2", "USART1", "USART2", "USART3", "EXTI15_10", "RTC_Alarm", "DFSDM1_FLT3", "TIM8_BRK", "TIM8_UP", "TIM8_TRG_COM", "TIM8_CC", "ADC3", "FMC", "SDMMC1", "TIM5", "SPI3", "UART4", "UART5", "TIM6_DAC", "TIM7", "DMA2_Channel1", "DMA2_Channel2", "DMA2_Channel3", "DMA2_Channel4", "DMA2_Channel5", "DFSDM1_FLT0", "DFSDM1_FLT1", "DFSDM1_FLT2"];
+/* ---------- 32-bit register explorer (field layout from ST stm32l476xx.h / ARM core_cm4.h; meanings from RM0351, PM0214, ARMv7-M ARM) ---------- */
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const LK={hdr:['ST stm32l476xx.h (bit positions)','https://github.com/STMicroelectronics/cmsis-device-l4/blob/master/Include/stm32l476xx.h'],
+ core:['CMSIS core_cm4.h (SCB / xPSR bit positions)','https://github.com/STMicroelectronics/cmsis_core/blob/master/Include/core_cm4.h'],
+ rm:['ST RM0351 reference manual','https://www.st.com/resource/en/reference_manual/rm0351-stm32l47xxx-stm32l48xxx-stm32l49xxx-and-stm32l4axxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf'],
+ pm:['ST PM0214 Cortex-M4 programming manual','https://www.st.com/resource/en/programming_manual/pm0214-stm32-cortexm4-mcus-and-mpus-programming-manual-stmicroelectronics.pdf'],
+ svd:['STM32L4x6.svd (reset values)','https://github.com/cmsis-svd/cmsis-svd-data/blob/main/data/STMicro/STM32L4x6.svd'],
+ um:['ST UM1724 Nucleo-64 user manual','https://www.st.com/resource/en/user_manual/um1724-stm32-nucleo64-boards-mb1136-stmicroelectronics.pdf'],
+ start:['ST startup_stm32l476xx.s (vector table)','https://github.com/STMicroelectronics/cmsis-device-l4/blob/master/Source/Templates/gcc/startup_stm32l476xx.s'],
+ sys:['ST system_stm32l4xx.c (VTOR)','https://github.com/STMicroelectronics/cmsis-device-l4/blob/master/Source/Templates/system_stm32l4xx.c'],
+ entry:['ARMv7-M ARM: exception entry',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/ARMv7-M-exception-model/Exception-entry-behavior'],
+ ret:['ARMv7-M ARM: exception return',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/ARMv7-M-exception-model/Exception-return-behavior'],
+ xpsr:['ARMv7-M ARM: xPSR',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/Registers/The-special-purpose-program-status-registers--xPSR'],
+ mask:['ARMv7-M ARM: PRIMASK, BASEPRI',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/Registers/The-special-purpose-mask-registers'],
+ icsr:['ARMv7-M ARM: ICSR',ARMDOC+'System-Level-Architecture/System-Address-Map/System-Control-Space--SCS-/Interrupt-Control-and-State-Register--ICSR'],
+ prio:['ARMv7-M ARM: priorities and preemption',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/ARMv7-M-exception-model/Exception-priorities-and-preemption']};
+const F=(hi,lo,name,desc,c)=>({hi,lo,name,desc,c:c===undefined?'n':c});
+const bits=(v,hi,lo)=>((v>>>lo)&(hi-lo===31?0xFFFFFFFF:((1<<(hi-lo+1))-1)))>>>0;
+const fmtF=(v,hi,lo)=>{const x=bits(v,hi,lo), w=hi-lo+1; return w<=4?'0b'+x.toString(2).padStart(w,'0'):'0x'+x.toString(16).toUpperCase();};
+/* fill the gaps between defined fields with Reserved */
+function fill(fl){const out=[]; let b=31; fl.slice().sort((a,c)=>c.hi-a.hi).forEach(f=>{ if(b>f.hi) out.push(F(b,f.hi+1,'Res.',()=>'Reserved: keep at reset value.','r')); out.push(f); b=f.lo-1;}); if(b>=0) out.push(F(b,0,'Res.',()=>'Reserved: keep at reset value.','r')); return out;}
+const one=(n,name,on,off,c)=>F(n,n,name,x=>x?'1: '+on:'0: '+off,c);
+/* EXTI: one bit per line, from HF */
+function extiReg(key,title,addr,v,acc,reset,on,off){
+  const fl=HF[key].map(([hi,lo,name])=>{const ln=+name.replace(/\D+/,''); const hit=ln===13;
+    return F(hi,lo,name,x=>(x?'1: ':'0: ')+(x?on:off).replace('{n}',ln)+(hit?' ← line 13 = PC13 (button B1).':''),hit?0:'n');});
+  return {title,sub:`${addr} · ${acc} · reset ${reset}`,v,fields:fill(fl),src:[LK.hdr,LK.rm,LK.svd]};}
+const TIMTXT={CEN:['counter enabled','counter disabled'],UDIS:['update event disabled','update event enabled'],URS:['only overflow/underflow raises update interrupt','any update source raises update interrupt'],
+ OPM:['counter stops at next update (one pulse)','counter not stopped at update'],DIR:['counts down','counts up'],ARPE:['ARR is buffered (preload)','ARR not buffered'],UIFREMAP:['UIF copied to CNT bit 31','no remap'],
+ UIE:['update interrupt enabled','update interrupt disabled'],UIF:['update event happened (CNT reached ARR and wrapped)','no update'],
+ TIE:['trigger interrupt enabled','trigger interrupt disabled'],TIF:['trigger event happened','no trigger event'],UDE:['update DMA request enabled','disabled'],TDE:['trigger DMA request enabled','disabled']};
+function timReg(key,title,addr,v,acc,hiKey){
+  const fl=HF[key].map(([hi,lo,name,cm])=>{const t=TIMTXT[name]; const c=name===hiKey?3:'n';
+    if(hi>lo) return F(hi,lo,name,x=>`${cm}: ${fmtF(x<<lo,hi,lo)}.`+(name==='CMS'?' 00 = edge-aligned.':name==='CKD'?' 00 = no division.':''),c);
+    return F(hi,lo,name,x=>t?(x?'1: '+t[0]:'0: '+t[1])+'.':(x?'1: ':'0: ')+cm+'.',c);});
+  return {title,sub:`${addr} · ${acc}`,v,fields:fill(fl),src:[LK.hdr,LK.rm]};}
+function nvicReg(title,addr,v,base,what,acc){
+  const fl=[]; for(let b=31;b>=0;b--){const n=base+b, nm=IRQN[n]||'reserved', hit=n===40||n===28;
+    fl.push(F(b,b,String(n),x=>`IRQ ${n} ${nm}: `+(x?'1 = '+what[0]:'0 = '+what[1])+'.',hit?(n===40?0:3):'n'));}
+  return {title,sub:`${addr} · ${acc} · bit n = IRQ ${base}+n · hover a bit for its IRQ`,v,fields:fl,src:[LK.pm,LK.hdr],narrow:true};}
+function iprReg(title,addr,v,n0){
+  const fl=[]; for(let k=3;k>=0;k--){const n=n0+k, nm=IRQN[n], hit=n===40||n===28;
+    fl.push(F(8*k+7,8*k+4,`PRI_${n}`,x=>`IRQ ${n} ${nm}: priority level ${x} (byte ${h2(x<<4)}). 0 = most urgent, 15 = least.`,hit?(n===40?0:3):'n'));
+    fl.push(F(8*k+3,8*k,'RAZ',()=>'Not implemented on STM32L4 (__NVIC_PRIO_BITS = 4): reads 0, writes ignored.','r'));}
+  return {title,sub:`${addr} · NVIC Interrupt Priority Register · 4 IRQs × 8 bits`,v,fields:fl,src:[LK.pm,LK.hdr]};}
+function excRet(title,sub,v){return {title,sub,v,fields:[F(31,28,'0xF',()=>'0xF: marks an EXC_RETURN value (only meaningful in Handler mode).',0),F(27,5,'Reserved',()=>'All 1.','r'),
+  F(4,4,'FType',x=>x?'1: basic 8-word frame (no FPU registers).':'0: extended frame with FPU registers.',1),
+  F(3,0,'Mode',x=>({1:'0001: return to Handler mode, use MSP (back to the paused ISR).',9:'1001: return to Thread mode, use MSP (back to main()).',13:'1101: return to Thread mode, use PSP.'})[x]||'reserved',2)],src:[LK.ret,LK.pm]};}
+function addrReg(title,sub,v,m){return {title,sub,v,fields:[F(31,1,'Address[31:1]',()=>m+' Address = '+hx(v&~1)+'.',0),F(0,0,'bit 0',x=>x?'1: Thumb bit.':'0: instruction addresses are halfword aligned.',1)],src:[LK.entry,LK.pm]};}
+function xpsrReg(title,sub,v,stacked,uf){const nf=t=>x=>uf?'UNKNOWN: ARM leaves the condition flags UNKNOWN on exception entry.':(x?'1: ':'0: ')+t;
+  return {title,sub,v,unk:uf?[31,30,29,28,27,19,18,17,16]:[],fields:[F(31,31,'N',nf('negative result'),'n'),F(30,30,'Z',nf('zero result'),'n'),F(29,29,'C',nf('carry / no borrow'),'n'),F(28,28,'V',nf('signed overflow'),'n'),F(27,27,'Q',nf('saturation'),'n'),
+  F(26,25,'ICI/IT',()=>'EPSR: IT / interrupted-instruction state. 0 here.',1),F(24,24,'T',x=>x?'1: Thumb state (always 1 on Cortex-M).':'0: fault.',1),F(23,20,'Res.',()=>'Reserved.','r'),
+  F(19,16,'GE[3:0]',()=>uf?'UNKNOWN.':'SIMD greater-or-equal flags: 0.','n'),F(15,10,'ICI/IT',()=>'EPSR: IT / ICI state. 0 here.',1),
+  F(9,9,stacked?'SPAlign':'Res.',x=>stacked?(x?'1: a padding word was added to 8-byte-align the frame.':'0: no padding word (MSP was 8-byte aligned).'):'Reserved.',stacked?2:'r'),
+  F(8,0,'ISR (IPSR)',x=>x?`Exception number ${x}${x===56?' = 16 + IRQ 40 (EXTI15_10)':x===44?' = 16 + IRQ 28 (TIM2)':''}: Handler mode.`:'0: Thread mode (main).',0)],src:[LK.xpsr,LK.core,LK.entry]};}
+function dataReg(title,sub,v,m,src){return {title,sub,v,fields:[F(31,0,'DATA',()=>m,0)],src:[src]};}
+function icsrVal(){const pl=[40,28].filter(i=>S.pend[i]).sort((a,b)=>S.prio[a]-S.prio[b]||SRC[a].exc-SRC[b].exc), vp=pl.length?SRC[pl[0]].exc:0, nact=[40,28].filter(i=>S.act[i]).length;
+  return ((pl.length?1:0)<<22|vp<<12|((S.ipsr&&nact<=1)?1:0)<<11|S.ipsr)>>>0;}
+function bxDef(kind,key){
+  if(kind==='r'){
+    if(['R0','R1','R2','R3','R7','R12'].includes(key)){const v=S.r[key];
+      if(v===null) return {title:key,sub:'General-purpose register (32-bit, no fields)',v:null,fields:[F(31,0,'DATA',()=>key==='R12'?'UNKNOWN: R12 is never written by this program (ARM: R0–R12 UNKNOWN after reset).':'UNKNOWN: ARM leaves R0–R3 and R12 UNKNOWN on exception entry. The interrupted value is in the stack frame.','r')],src:[LK.entry]};
+      return dataReg(key,'General-purpose register (32-bit, no fields)'+(key==='R7'?' · used as frame pointer by -O0 code':''),v,key==='R7'?'Frame pointer of the running function. Not saved by hardware: each ISR saves it with push {r7}.':'Value written by the last instruction that used '+key+' (see the code panel).',LK.entry);}
+    if(key==='xPSR') return xpsrReg('xPSR','Program Status Register: APSR + EPSR + IPSR',xpsrVal(),false,!S.f);
+    if(key==='PC') return (S.PC>>>28)===0xF?excRet('PC ← EXC_RETURN','Program Counter (R15): this value starts an exception return',S.PC):addrReg('PC','Program Counter (R15)',S.PC,'Next instruction.');
+    if(key==='LR') return (S.LR>>>28)===0xF?excRet('LR = EXC_RETURN','Link Register (R14), written by hardware on exception entry',S.LR):addrReg('LR','Link Register (R14)',S.LR,'Return address of main() (written by BL).');
+    if(key==='MSP') return {title:'MSP',sub:'Main Stack Pointer (R13). No RTOS: main() and ISRs share it',v:S.msp,fields:[F(31,2,'Address[31:2]',()=>'Last word pushed = '+hx(S.msp)+'. Stack grows down: −32 per hardware frame.',0),F(1,0,'[1:0]',()=>'Always 0: word aligned.','r')],src:[LK.entry,LK.pm]};
+    if(key==='PRIMASK') return {title:'PRIMASK',sub:'Priority mask register (MRS / MSR, CPSID i / CPSIE i)',v:0,fields:fill([one(0,'PM','all exceptions with configurable priority are masked.','no masking: interrupts can be taken.',0)]),src:[LK.mask,LK.pm]};
+    if(key==='BASEPRI') return {title:'BASEPRI',sub:'Base priority mask register (8-bit)',v:0,fields:[F(31,8,'—',()=>'Not part of BASEPRI: reads 0.','r'),F(7,4,'BASEPRI',x=>x?`Mask interrupts with priority level ≥ ${x}.`:'0: no masking.',0),F(3,0,'RAZ',()=>'Not implemented (4 priority bits).','r')],src:[LK.mask,LK.pm]};
+  }
+  if(kind==='m'){ switch(key){
+    case 'IDR': return {title:'GPIOC_IDR',sub:'0x48000810 · GPIO port C input data · read-only',v:1<<13,unk:Array.from({length:16},(_,i)=>i).filter(i=>i!==13),
+      fields:fill(Array.from({length:16},(_,i)=>F(i,i,'ID'+i,x=>i===13?(x?'1: PC13 high: B1 released (a press is a short 1 → 0 → 1 pulse; the falling edge sets the flag).':'0: PC13 low: B1 held down.'):'Pin PC'+i+': not modelled.',i===13?0:'n'))),src:[LK.hdr,LK.rm,LK.um]};
+    case 'EXTICR4': {const codes=['PA','PB','PC','PD','PE','PF','PG','reserved'];
+      return {title:'SYSCFG_EXTICR4',sub:'0x40010014 · source port for EXTI lines 12–15 · read/write · reset 0x00000000',v:0x20,fields:fill(HF.EXTICR4.map(([hi,lo,name])=>{const ln=+name.slice(4);
+        return F(hi,lo,name,x=>`${x.toString(2).padStart(3,'0')}: line ${ln} ← ${codes[x]}${ln}${ln===13?' (button B1)':''}.`,ln===13?0:'n');})),src:[LK.hdr,LK.rm]};}
+    case 'IMR1': return extiReg('IMR1','EXTI_IMR1','0x40010400',0xFF822000,'interrupt mask · read/write','0xFF820000','line {n} interrupt request NOT masked (allowed).','line {n} masked: no interrupt.');
+    case 'EMR1': return extiReg('EMR1','EXTI_EMR1','0x40010404',0,'event mask (wake-up event, no ISR) · read/write','0x00000000','line {n} event not masked.','line {n} event masked.');
+    case 'RTSR1': return extiReg('RTSR1','EXTI_RTSR1','0x40010408',0,'rising trigger selection · read/write','0x00000000','rising edge on line {n} sets its pending bit.','rising edge ignored.');
+    case 'FTSR1': return extiReg('FTSR1','EXTI_FTSR1','0x4001040C',0x2000,'falling trigger selection · read/write','0x00000000','falling edge on line {n} sets its pending bit.','falling edge ignored.');
+    case 'SWIER1': return extiReg('SWIER1','EXTI_SWIER1','0x40010410',0,'software interrupt event · read/write','0x00000000','software request on line {n} (sets PIF{n}).','no software request.');
+    case 'PR1': return extiReg('PR1','EXTI_PR1','0x40010414',S.PR1<<13,'pending FLAGS · rc_w1: write 1 to clear','0x00000000','trigger request occurred on line {n}. Cleared by writing 1.','no trigger request on line {n}.');
+    case 'CR1': return timReg('CR1','TIM2_CR1','0x40000000 · control register 1',1,'read/write','CEN');
+    case 'DIER': return timReg('DIER','TIM2_DIER','0x4000000C · DMA / interrupt enable',1,'read/write','UIE');
+    case 'SR': return timReg('SR','TIM2_SR','0x40000010 · status FLAGS',S.UIF,'rc_w0: write 0 to clear a flag','UIF');
+    case 'ISER0': return nvicReg('NVIC_ISER0','0xE000E100',0x10000000,0,['enabled','disabled'],'Interrupt Set-Enable · write 1 to enable, read = state');
+    case 'ISER1': return nvicReg('NVIC_ISER1','0xE000E104',0x100,32,['enabled','disabled'],'Interrupt Set-Enable · write 1 to enable, read = state');
+    case 'ISPR0': return nvicReg('NVIC_ISPR0','0xE000E200',(S.pend[28]<<28)>>>0,0,['pending','not pending'],'Interrupt Set-Pending · write 1 to pend, ICPR clears');
+    case 'ISPR1': return nvicReg('NVIC_ISPR1','0xE000E204',S.pend[40]<<8,32,['pending','not pending'],'Interrupt Set-Pending · write 1 to pend, ICPR clears');
+    case 'IABR0': return nvicReg('NVIC_IABR0','0xE000E300',(S.act[28]<<28)>>>0,0,['active (ISR running or paused)','not active'],'Interrupt Active Bit · read-only');
+    case 'IABR1': return nvicReg('NVIC_IABR1','0xE000E304',S.act[40]<<8,32,['active (ISR running or paused)','not active'],'Interrupt Active Bit · read-only');
+    case 'IPR7': return iprReg('NVIC_IPR7','0xE000E41C',S.prio[28]<<4,28);
+    case 'IPR10': return iprReg('NVIC_IPR10','0xE000E428',S.prio[40]<<4,40);
+    case 'ICSR': {const v=icsrVal(); return {title:'SCB_ICSR',sub:'0xE000ED04 · Interrupt Control and State Register',v,unk:S.ipsr?[]:[11],fields:fill([
+      one(31,'NMIPENDSET','NMI pending.','NMI not pending.'),one(28,'PENDSVSET','PendSV pending.','PendSV not pending.'),F(27,27,'PENDSVCLR',()=>'Write-only: write 1 to clear PendSV pending.','r'),
+      one(26,'PENDSTSET','SysTick pending.','SysTick not pending.'),F(25,25,'PENDSTCLR',()=>'Write-only: write 1 to clear SysTick pending.','r'),
+      F(23,23,'ISRPREEMPT',()=>'Debug only: pending exception will be serviced on exit from halt.','n'),
+      one(22,'ISRPENDING','an NVIC interrupt is pending.','no NVIC interrupt pending.',1),
+      F(20,12,'VECTPENDING',x=>x?`Highest-priority pending exception = ${x}${x===56?' (EXTI15_10)':x===44?' (TIM2)':''}.`:'0: nothing pending.',0),
+      F(11,11,'RETTOBASE',x=>!S.ipsr?'UNKNOWN in Thread mode.':x?'1: only one exception active: return goes to Thread.':'0: another exception is active (nested).',2),
+      F(8,0,'VECTACTIVE',x=>x?`Running exception ${x} (same as IPSR).`:'0: Thread mode.',3)]),src:[LK.icsr,LK.core,LK.pm]};}
+    case 'AIRCR': return {title:'SCB_AIRCR',sub:'0xE000ED0C · Application Interrupt and Reset Control',v:0xFA050000,fields:fill([F(31,16,'VECTKEYSTAT',()=>'Reads 0xFA05. Write 0x05FA here to change the register.',1),
+      one(15,'ENDIANNESS','big endian.','little endian.',1),F(10,8,'PRIGROUP',x=>`${x}: priority grouping. With only bits [7:4] implemented, PRIGROUP 0–3 all give 4 bits of preempt priority, no subpriority.`,0),
+      F(2,2,'SYSRESETREQ',()=>'Write 1: request system reset.','n'),F(1,1,'VECTCLRACTIVE',()=>'Debug use only. Write 0.','n'),F(0,0,'VECTRESET',()=>'Debug use only. Write 0.','n')]),src:[LK.pm,LK.core,LK.prio]};
+    case 'CCR': return {title:'SCB_CCR',sub:'0xE000ED14 · Configuration and Control · reset 0x00000200',v:0x200,fields:fill([one(9,'STKALIGN','exception frames 8-byte aligned (padding word added when needed).','4-byte aligned frames.',0),
+      one(8,'BFHFNMIGN','ignore data bus faults in HardFault/NMI handlers.','bus faults not ignored.'),one(4,'DIV_0_TRP','divide by 0 traps.','divide by 0 returns 0.'),one(3,'UNALIGN_TRP','unaligned access traps.','unaligned access allowed.'),
+      one(1,'USERSETMPEND','unprivileged code may write STIR.','STIR is privileged only.'),one(0,'NONBASETHRDENA','Thread mode may be entered with exceptions active.','Thread mode only when no exception active.')]),src:[LK.pm,LK.core]};
+    case 'VTOR': return {title:'SCB_VTOR',sub:'0xE000ED08 · Vector Table Offset Register',v:0,fields:[F(31,7,'TBLOFF',()=>'0: vector table at 0x00000000 (Flash 0x08000000 is aliased there at boot). ST SystemInit leaves VTOR = 0.',0),F(6,0,'Res.',()=>'Reserved.','r')],src:[LK.core,LK.sys,LK.pm]};
+    case 'V56': return {title:'Vector table entry 56 (EXTI15_10)',sub:'0x000000E0 = VTOR + 4 × 56 · Flash 0x080000E0',v:0x0800031D,fields:[F(31,1,'Handler[31:1]',()=>'PC ← 0x0800031C: EXTI15_10_IRQHandler.',0),F(0,0,'T',x=>'1: Thumb code. Loaded into EPSR.T, not into PC.',1)],src:[LK.start,LK.entry]};
+    case 'V44': return {title:'Vector table entry 44 (TIM2)',sub:'0x000000B0 = VTOR + 4 × 44 · Flash 0x080000B0',v:0x08000355,fields:[F(31,1,'Handler[31:1]',()=>'PC ← 0x08000354: TIM2_IRQHandler.',3),F(0,0,'T',x=>'1: Thumb code.',1)],src:[LK.start,LK.entry]};
+    case 'ODR': return {title:'GPIOA_ODR',sub:'0x48000014 · GPIO port A output data · read/write · reset 0x00000000',v:S.led<<5,fields:fill(Array.from({length:16},(_,i)=>F(i,i,'OD'+i,x=>i===5?(x?'1: PA5 high: LED LD2 on.':'0: PA5 low: LED LD2 off.'):'Pin PA'+i+': not used here, 0.',i===5?0:'n'))),src:[LK.hdr,LK.rm,LK.um]};
+    case 'LIT46C': return dataReg('Literal pool word','0x0800046C · Flash, after main() · read by ldr r3,[pc,#24] at 08000450 and ldr r2,[pc,#20] at 08000456',0x20000084,'The address of count (0x20000084), stored in Flash by the compiler because a 32-bit address does not fit inside a 16-bit instruction.',LK.hdr);
+    case 'LIT38C': return dataReg('Literal pool word','0x0800038C · Flash, after TIM2_IRQHandler · read at 08000376 and 0800037C',0x20000088,'The address of ticks (0x20000088).',LK.hdr);
+    case 'LIT350': return dataReg('Literal pool word','0x08000350 · Flash, after EXTI15_10_IRQHandler · read at 08000320 and 0800033C',0x40010400,'The EXTI base address (0x40010400): EXTI_PR1 = base + 20 = 0x40010414.',LK.hdr);
+    case 'V0': return dataReg('Vector 0','0x08000000 · initial stack pointer',0x20018000,'Loaded into MSP at reset: _estack, the top of SRAM1 (96 KB).',LK.start);
+    case 'count': return dataReg('count','0x20000084 · volatile uint32_t in SRAM',S.count,'Incremented by the while loop in main().',LK.start);
+    case 'ticks': return dataReg('ticks','0x20000088 · volatile uint32_t in SRAM',S.ticks,'Incremented by TIM2_IRQHandler.',LK.start);
+  } return null; }
+  if(kind==='a'){ const a=+key, w=S.mem[a]; if(!w) return {title:'Stack word '+hx(a),sub:'SRAM1 · main stack',v:null,fields:[F(31,0,'free',()=>'Not written yet.','r')],src:[LK.entry]};
+    const sub=`${hx(a)} · ${w.reg==='pad'?'padding':w.reg} · ${w.n}`;
+    if(w.reg==='pad') return {title:'Padding word',sub,v:null,fields:[F(31,0,'unused',()=>'Skipped by hardware so the frame starts on an 8-byte boundary (CCR.STKALIGN = 1). Stacked xPSR bit 9 = 1 records it; return adds 4 more to MSP.','r')],src:[LK.entry,LK.pm]};
+    if(w.reg==='xPSR') return xpsrReg('Stacked xPSR',sub,w.v,true,w.uf);
+    if(w.reg==='PC') return addrReg('Stacked PC',sub,w.v,'Return address: the instruction that had not run yet when the interrupt came.');
+    if(w.reg==='LR') return w.v!==null&&(w.v>>>28)===0xF?excRet('Stacked LR = EXC_RETURN',sub,w.v):addrReg('Stacked LR',sub,w.v,'LR value at that moment.');
+    if(w.v===null) return {title:'Stacked '+w.reg,sub,v:null,fields:[F(31,0,'DATA',()=>'UNKNOWN value, saved anyway: hardware always saves all 8 registers.','r')],src:[LK.entry]};
+    return dataReg('Stacked '+w.reg,sub,w.v,'Copy of '+w.reg+'. Restored on return.',LK.entry);
+  }
+  return null;
+}
+let bxWasRunning=false;
+function bxOpen(kind,key){
+  const d=bxDef(kind,key); if(!d) return;
+  bxWasRunning=running; if(running) setRun(false);
+  $('bx-t').textContent=d.title; $('bx-sub').textContent=d.sub+` · value at t = ${S.t}`;
+  $('bx-v').innerHTML=d.v===null?'value not modelled':`${hx(d.v)}<small>= ${(d.v>>>0).toLocaleString('en-US')} decimal</small>`;
+  const cell=b=>d.fields.find(f=>b<=f.hi&&b>=f.lo), fi=b=>d.fields.indexOf(cell(b)), cls=f=>f.c==='r'?'cr':f.c==='n'?'cn':'c'+f.c, U=d.unk||[];
+  let g='';
+  for(let b=31;b>=0;b--) g+=`<div class="bn${b%4===3&&b!==31?' nib':''}" data-fi="${fi(b)}">${b}</div>`;
+  for(let b=31;b>=0;b--){const f=cell(b), u=d.v===null||U.includes(b), x=u?'?':((d.v>>>b)&1); g+=`<div class="bv ${cls(f)}${x===1?' one':''}${b%4===3&&b!==31?' nib':''}" data-fi="${fi(b)}">${x}</div>`;}
+  d.fields.forEach((f,k)=>{g+=`<div class="fl ${cls(f)}${d.narrow?' vert':''}" data-fi="${k}" style="grid-column:${32-f.hi} / ${33-f.lo}">${esc(f.name)}</div>`;});
+  $('bx-g').innerHTML=g;
+  $('bx-tb').innerHTML=d.fields.map((f,k)=>{const u=d.v===null||U.includes(f.hi), x=d.v===null?0:bits(d.v,f.hi,f.lo);
+    return `<tr data-fi="${k}" class="${f.c==='n'||f.c==='r'?'dim':''}"><td>${f.hi===f.lo?f.hi:f.hi+':'+f.lo}</td><td>${esc(f.name)}</td><td>${u?'?':fmtF(d.v,f.hi,f.lo)}</td><td>${esc(f.desc(x))}</td></tr>`;}).join('');
+  $('bx-src').innerHTML='Sources: '+d.src.map(x=>`<a href="${x[1]}" target="_blank" rel="noopener">${esc(x[0])}</a>`).join(' · ')+(bxWasRunning?' · Simulation paused while this is open.':'');
+  $('bx').hidden=false; $('bx-x').focus();
+}
+function bxHi(k){document.querySelectorAll('#bx [data-fi]').forEach(x=>x.classList.toggle('fhi',k!==null&&x.dataset.fi===k));}
+$('bx').addEventListener('mouseover',e=>{const t=e.target.closest('#bx [data-fi]'); bxHi(t?t.dataset.fi:null);});
+function bxClose(){ if($('bx').hidden) return; $('bx').hidden=true; if(bxWasRunning){bxWasRunning=false; setRun(true);} }
+$('bx-x').onclick=bxClose;
+$('bx').addEventListener('click',e=>{if(e.target===$('bx')) bxClose();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape') bxClose();});
+document.addEventListener('click',e=>{
+  if(!$('bx').hidden) return;
+  const t=e.target.closest('[data-r],[data-m],[data-a]'); if(!t||e.target.closest('select,button:not(.chip)')) return;
+  if(t.dataset.r) bxOpen('r',t.dataset.r); else if(t.dataset.m) bxOpen('m',t.dataset.m); else bxOpen('a',t.dataset.a);
+});
+
+/* ---------- hover tooltip for memory rows ---------- */
+(()=>{const tip=$('tip'), mm=$('stkbody');
+  mm.addEventListener('mousemove',e=>{const r=e.target.closest('[data-tip]'); if(!r){tip.hidden=true;return;}
+    tip.textContent=r.dataset.tip; tip.hidden=false; const w=tip.offsetWidth, h=tip.offsetHeight;
+    let x=e.clientX+14, y=e.clientY+14; if(x+w>innerWidth-8) x=e.clientX-w-10; if(y+h>innerHeight-8) y=e.clientY-h-10;
+    tip.style.left=x+'px'; tip.style.top=y+'px';});
+  mm.addEventListener('mouseleave',()=>{tip.hidden=true;});
+  const cp=$('codeBody'); cp.addEventListener('mousemove',e=>{const r=e.target.closest('[data-tip]'); if(!r){tip.hidden=true;return;}
+    tip.textContent=r.dataset.tip; tip.hidden=false; const w=tip.offsetWidth, h=tip.offsetHeight;
+    let x=e.clientX+14, y=e.clientY+14; if(x+w>innerWidth-8) x=e.clientX-w-10; if(y+h>innerHeight-8) y=e.clientY-h-10;
+    tip.style.left=x+'px'; tip.style.top=y+'px';});
+  cp.addEventListener('mouseleave',()=>{tip.hidden=true;}); cp.addEventListener('scroll',()=>{tip.hidden=true;});
+  mm.addEventListener('scroll',()=>{tip.hidden=true;});})();
+/* ---------- controls ---------- */
+function pane(code){ $('codeBody').hidden=!code; $('logBody').hidden=code; $('tabCode').classList.toggle('on',code); $('tabLog').classList.toggle('on',!code);
+  $('tabCode').setAttribute('aria-selected',code); $('tabLog').setAttribute('aria-selected',!code); $('paneHint').textContent=code?'C + disassembly · address = PC':'newest first'; }
+$('tabCode').onclick=()=>pane(true); $('tabLog').onclick=()=>pane(false);
+['pE','pT'].forEach((id,k)=>{$(id).innerHTML=Array.from({length:16},(_,i)=>`<option value="${i}">${i}</option>`).join(''); $(id).value=k===0?'2':'1';});
+const prioTxt=()=>{$('pEb').textContent=`IPR byte 0xE000E428 = ${h2(S.prio[40]<<4)}`; $('pTb').textContent=`IPR byte 0xE000E41C = ${h2(S.prio[28]<<4)}`;};
+$('pE').onchange=()=>{S.prio[40]=+$('pE').value; log('exti',`NVIC_SetPriority(EXTI15_10_IRQn, ${S.prio[40]}): IPR byte <code>0xE000E428</code> = <code>${h2(S.prio[40]<<4)}</code>.`); prioTxt(); render();};
+$('pT').onchange=()=>{S.prio[28]=+$('pT').value; log('tim',`NVIC_SetPriority(TIM2_IRQn, ${S.prio[28]}): IPR byte <code>0xE000E41C</code> = <code>${h2(S.prio[28]<<4)}</code>.`); prioTxt(); render();};
+let timer=null, running=false;
+const period=()=>Math.round(1000/(+$('spd').value));
+function loop(){ tick(); render(); timer=setTimeout(loop,period()); }
+function setRun(on){ running=on; clearTimeout(timer); $('run').textContent=on?'Pause':'Run'; $('step').disabled=on; if(on) timer=setTimeout(loop,period()); }
+$('run').onclick=()=>setRun(!running);
+$('step').onclick=()=>{ tick(); render(); };
+$('reset').onclick=()=>{ reset(); prioTxt(); for(let i=0;i<18;i++) tick(); render(); };
+$('tB1').onclick=()=>trigger(40);
+$('tTIM').onclick=()=>trigger(28);
+addEventListener('resize',()=>renderTL());
+reset(); prioTxt(); for(let i=0;i<18;i++) tick(); render();
+setRun(!matchMedia('(prefers-reduced-motion: reduce)').matches);
+})();
+</script>
+
+</body></html>
