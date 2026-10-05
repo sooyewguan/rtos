@@ -1,0 +1,965 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>STM32L476 SysTick Interrupt Lab</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: one screen. Stage bar on top; Code (C + disassembly) | Memory map | CPU registers | Task stack; event explanation + controls at the bottom. */
+:root{
+  --bg:#EDEFEA; --panel:#FBFCF9; --soft:#F2F4EF; --ink:#16201C; --muted:#5B6862; --line:#D2D8D0;
+  --irq:#B55800; --irq-soft:#FCE6CF; --stk:#0C7570; --stk-soft:#D3EEEA; --rd:#21609F; --rd-soft:#DCE8F5;
+  --f-disp:"Barlow Condensed","Arial Narrow",sans-serif; --f-body:"IBM Plex Sans",system-ui,sans-serif; --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0E1211; --panel:#161B19; --soft:#1C2220; --ink:#E5EAE6; --muted:#95A29B; --line:#2B3431;
+  --irq:#F2A541; --irq-soft:#3B2B15; --stk:#46C5BB; --stk-soft:#133432; --rd:#7DB1EA; --rd-soft:#17283B; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1211; --panel:#161B19; --soft:#1C2220; --ink:#E5EAE6; --muted:#95A29B; --line:#2B3431;
+  --irq:#F2A541; --irq-soft:#3B2B15; --stk:#46C5BB; --stk-soft:#133432; --rd:#7DB1EA; --rd-soft:#17283B; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 var(--f-body)}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--rd);outline-offset:2px}
+.app{height:100%;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;gap:8px;padding-inline:16px;padding-block:8px}
+
+.top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.top h1{font:700 25px/1 var(--f-disp);margin:0}
+.top .sub{color:var(--muted);font-size:12.5px}
+.top details{margin-left:auto;font-size:12px;color:var(--muted);position:relative}
+.top summary{cursor:pointer}
+.top details[open] .src{position:absolute;right:0;top:22px;z-index:20;width:min(640px,92vw);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;box-shadow:0 8px 30px rgba(0,0,0,.18)}
+.src ol{margin:0;padding-left:18px;display:grid;gap:4px}
+.src a{color:var(--rd)}
+
+.stages{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}
+.sg{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:4px 8px 5px;text-align:left;cursor:pointer;display:grid;gap:3px;min-width:0}
+.sg span{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sg .dots{display:flex;gap:2px}
+.sg .dots i{flex:1;height:4px;border-radius:2px;background:var(--line)}
+.sg .dots i.on{background:var(--muted)}
+.sg .dots i.now{background:var(--irq)}
+.sg.cur{border-color:var(--irq);box-shadow:inset 0 0 0 1px var(--irq)}
+
+.stage{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,2fr) minmax(0,.95fr);gap:8px;min-height:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px;display:flex;flex-direction:column;gap:6px;min-height:0;min-width:0}
+.card h2{margin:0;font:600 12px var(--f-body);letter-spacing:.07em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:6px;align-items:center;flex-wrap:wrap}
+.pill{font:700 11px var(--f-mono);padding:2px 8px;border-radius:999px;text-transform:none;letter-spacing:.02em}
+.p-thread{background:var(--stk-soft);color:var(--stk)}
+.p-handler{background:var(--irq-soft);color:var(--irq)}
+
+/* code: C source + disassembly */
+.who{font:600 12px var(--f-body);padding:4px 8px;border-radius:6px}
+.who.cpu{background:var(--irq-soft);color:var(--irq)}
+.who.hwa{background:var(--rd-soft);color:var(--rd)}
+.file{font:600 12px var(--f-mono);color:var(--muted)}
+.file b{color:var(--ink)}
+.code{position:relative;flex:1;min-height:0;overflow:auto;background:var(--soft);border:1px solid var(--line);border-radius:6px;padding:4px 0;font:11.5px/1.5 var(--f-mono)}
+.cl{display:grid;grid-template-columns:3.4em minmax(0,1fr);padding:2px 8px 0;color:var(--ink);font-weight:700;white-space:pre-wrap;font-family:var(--f-mono)}
+.cl .n{color:var(--muted);font-weight:500}
+.al{display:grid;grid-template-columns:5.8em 13.5em minmax(0,1fr);padding:0 8px;align-items:start}
+.al > span:nth-child(-n+2){white-space:pre}
+.al .ad{color:var(--muted)}
+.al .cm{color:var(--muted);white-space:normal;overflow-wrap:anywhere}
+.al.ex{background:var(--irq-soft);box-shadow:inset 3px 0 0 var(--irq)}
+.al.pc{background:var(--rd-soft);box-shadow:inset 3px 0 0 var(--rd)}
+.al.pc .ad::before{content:"▶";color:var(--rd);margin-right:2px}
+.gp{padding:1px 8px;color:var(--muted);font-style:italic;font-size:11px}
+.key{font-size:11px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
+.key i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:3px}
+
+/* memory map */
+.map{flex:1;display:flex;flex-direction:column;gap:6px;min-height:0;overflow:auto}
+.blk{flex:1 0 auto;border:1px solid var(--line);border-radius:8px;padding:5px 7px;display:flex;flex-direction:column;gap:2px}
+.blk .hd{display:flex;justify-content:space-between;gap:6px;align-items:baseline}
+.blk .nm{font-weight:600;font-size:13px}
+.blk .ad{font:500 11px var(--f-mono);color:var(--muted)}
+.mrow{flex:1 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px;align-items:center;border-radius:5px;padding:3px 6px;border:1px solid transparent}
+.mrow .k{min-width:0;font-size:12.5px;line-height:1.3}
+.mrow .k small{font:500 11px var(--f-mono);color:var(--muted);margin-left:6px;white-space:nowrap;display:inline-block}
+.mrow .val{font:700 12px var(--f-mono)}
+
+/* registers */
+/* register panel: same block design as the fetch-decode-execute simulator (core box, 2-column register boxes, xPSR flags box) */
+.regs{flex:1;display:flex;flex-direction:column;gap:4px;min-height:0;overflow:auto;background:var(--soft);border:1.5px solid var(--line);border-radius:10px;padding:8px}
+.rgt{font:600 14px/1.1 var(--f-disp);color:var(--muted);margin-top:2px}
+.rgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+.reg{flex:none;display:flex;justify-content:space-between;align-items:center;gap:4px;min-width:0;height:clamp(26px,4vh,36px);background:var(--panel);border:1.5px solid var(--line);border-radius:5px;padding:0 6px}
+.reg .n{font:600 clamp(13px,1vw,15px) var(--f-disp);color:var(--muted);white-space:nowrap}
+.reg .val{font:700 clamp(11px,.85vw,14px) var(--f-mono);color:var(--ink);text-align:right;white-space:nowrap}
+.reg.sp .n{color:var(--stk)}
+.flags{background:var(--panel);border:1.5px solid var(--line);border-radius:5px;padding:4px 10px 5px;cursor:pointer}
+.flags .ft{font:600 14px var(--f-disp);color:var(--muted)}
+.flags .fr{display:flex;gap:4px 12px;flex-wrap:wrap;margin-top:2px}
+.flags .fr span{font:600 15px var(--f-disp);color:var(--muted)}
+.flags .fr b{font:700 15px var(--f-mono);color:var(--ink);margin-left:5px}
+.flags .fs{font:500 11px var(--f-mono);color:var(--muted);margin-top:2px}
+.rnote{font:500 12.5px/1.45 var(--f-body);color:var(--muted)}
+.rnote b{color:var(--ink);font-weight:600}
+
+/* stack */
+.stack{flex:1;position:relative;display:flex;flex-direction:column;gap:2px;min-height:0;overflow:auto;padding-left:52px}
+.slot{flex:1 0 auto;display:grid;grid-template-columns:6.4em minmax(0,1fr);align-items:center;gap:6px;border:1px solid var(--line);border-radius:5px;padding:2px 7px;font:11.5px var(--f-mono)}
+.slot .a{color:var(--muted);font-size:10.5px}
+.slot .v{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:8px;min-width:0;line-height:1.3}
+.slot .val{font-weight:700}
+.slot small{font:500 11px var(--f-body);color:var(--muted)}
+.slot.old{background:var(--soft)}
+.slot.frame{background:var(--irq-soft);border-color:var(--irq)}
+.slot.free .val{color:var(--muted);font-weight:500}
+.slot.stale .val{color:var(--muted);font-weight:500;opacity:.7}
+.mk{position:absolute;left:0;top:0;width:50px;display:flex;align-items:center;gap:3px;transition:top .8s cubic-bezier(.4,.1,.2,1);font:700 11px var(--f-mono)}
+.mk::after{content:"";flex:1;height:2px;background:var(--stk)}
+.mk em{font-style:normal;background:var(--stk);color:var(--panel);padding:2px 5px;border-radius:4px}
+.mk[hidden]{display:none}
+.mstack{flex:none;overflow:visible}
+.mtop{display:grid;grid-template-columns:6.4em minmax(0,1fr);gap:6px;align-items:center;padding:2px 7px;font:500 11.5px var(--f-body);color:var(--muted);border:1px dashed var(--line);border-radius:5px}
+.mtop .a{font:500 10.5px var(--f-mono)}
+.mtop b{color:var(--ink);font-weight:600}
+.slot.mf{background:var(--stk-soft);border-color:var(--stk)}
+.mk.off em{background:var(--muted)} .mk.off::after{background:var(--muted)}
+.mk.fr::after{background:none;border-top:2px dashed var(--irq)}
+.mk.fr em{background:var(--irq)}
+.cap2{font-size:11px;color:var(--muted)}
+
+.hw{background:var(--irq-soft)!important;border-color:var(--irq)!important;box-shadow:0 0 0 2px var(--irq)}
+.hr{background:var(--rd-soft)!important;border-color:var(--rd)!important;box-shadow:0 0 0 2px var(--rd)}
+.ghost{position:fixed;z-index:30;pointer-events:none;background:var(--irq);color:var(--panel);font:700 13px var(--f-mono);border-radius:5px;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.ghost.back{background:var(--rd)}
+
+.foot{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 14px;min-height:104px}
+.ev .no{font:600 12px var(--f-mono);color:var(--muted)}
+.ev h3{margin:2px 0 3px;font:700 22px/1.1 var(--f-disp)}
+.ev p{margin:0;font-size:14.5px;max-width:125ch}
+.ctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.btn{border:1px solid var(--line);background:var(--soft);border-radius:8px;padding:9px 14px;cursor:pointer;font-weight:600}
+.btn:disabled{opacity:.35;cursor:default}
+.btn.go{background:var(--irq);color:var(--panel);border-color:var(--irq);min-width:9em}
+code{font-family:var(--f-mono);font-size:.92em;background:var(--soft);padding:0 4px;border-radius:3px}
+
+
+
+/* unified memory map */
+.mm{flex:1;min-height:0;display:grid;grid-template-columns:150px minmax(0,1fr);gap:8px}
+.ladder{display:flex;flex-direction:column;gap:2px;min-height:0;overflow:auto}
+.blk8{flex:1 0 auto;border:1px solid var(--line);border-radius:6px;padding:3px 6px;display:grid;gap:1px;cursor:pointer;background:var(--panel);text-align:left;font:inherit;color:inherit}
+.blk8 .ba{font:500 10px var(--f-mono);color:var(--muted)}
+.blk8 .bn{font:600 11.5px/1.2 var(--f-body)}
+.blk8 .bt8{font:700 10px var(--f-mono)}
+.blk8.R{border-color:var(--rd);background:var(--rd-soft)} .blk8.R .bt8{color:var(--rd)}
+.blk8.W{border-color:var(--irq);background:var(--irq-soft)} .blk8.W .bt8{color:var(--irq)}
+.blk8.used{border-left:4px solid var(--stk)}
+.detail{min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px;padding-right:2px}
+.sec{border:1px solid var(--line);border-radius:8px;padding:5px 7px;display:flex;flex-direction:column;gap:2px}
+.sechd,.heaphd{display:flex;justify-content:space-between;gap:6px;align-items:baseline;flex-wrap:wrap;font-weight:600;font-size:12.5px}
+.sechd small,.heaphd small{font:500 10.5px var(--f-mono);color:var(--muted)}
+.mrows{display:flex;flex-direction:column;gap:2px}
+.heap{border:1px dashed var(--line);border-radius:6px;padding:4px 6px;display:flex;flex-direction:column;gap:2px}
+.gap{font:italic 500 11px var(--f-body);color:var(--muted);padding:1px 4px}
+.mm .mrow{display:grid;grid-template-columns:6.6em minmax(0,1fr) auto;gap:6px;align-items:center;padding:3px 6px;border-radius:5px;border:1px solid transparent;font-size:12px}
+.mm .mrow .ad{font:500 11px var(--f-mono);color:var(--muted)}
+.mm .mrow .k{font-size:12px;line-height:1.25;min-width:0}
+.mm .mrow .k small{font:500 10.5px var(--f-body);color:var(--muted);margin-left:5px;white-space:normal;display:inline}
+.mm .mrow .val{font:700 12px var(--f-mono)}
+.mm .stack{flex:0 0 auto;overflow:visible}
+/* bit explorer */
+.reg[data-r],.flags[data-r],.mrow[data-m],.slot[data-a]{cursor:pointer}
+.reg[data-r]:hover,.mrow[data-m]:hover,.slot[data-a]:hover{outline:2px solid var(--rd);outline-offset:-1px}
+.hint{font:500 11px var(--f-body);color:var(--rd);text-transform:none;letter-spacing:0}
+.bx-back{position:fixed;inset:0;z-index:50;background:rgba(10,14,12,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+.bx-back[hidden]{display:none}
+.bx{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;width:min(980px,100%);max-height:calc(100% - 32px);overflow:auto;padding:16px 18px;display:grid;gap:12px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.bx-hd{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.bx-hd h3{margin:0;font:700 24px/1.1 var(--f-disp)}
+.bx-hd .sub{font:500 12.5px var(--f-mono);color:var(--muted);margin-top:3px}
+.bx-close{border:1px solid var(--line);background:var(--soft);border-radius:8px;padding:6px 12px;cursor:pointer;font-weight:600}
+.bx-val{font:700 16px var(--f-mono)}
+.bx-val small{font:500 12px var(--f-body);color:var(--muted);margin-left:8px}
+.bgrid-wrap{overflow-x:auto}
+.bgrid{display:grid;grid-template-columns:repeat(32,minmax(19px,1fr));min-width:640px;font-family:var(--f-mono)}
+.bgrid .bn{font-size:10px;color:var(--muted);text-align:center;padding-bottom:2px}
+.bgrid .bv{font-size:13px;font-weight:700;text-align:center;padding:5px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.bgrid .bv.one{color:var(--irq)}
+.bgrid .fl{font:600 10.5px/1.2 var(--f-body);text-align:center;padding:4px 2px;border-left:1px solid var(--panel);overflow-wrap:anywhere}
+.bgrid .nib{border-left:2px solid var(--line)}
+.bgrid [data-fi],.bt tr[data-fi]{cursor:default}
+.bgrid .fhi{background:var(--rd-soft)!important;color:var(--rd)!important;box-shadow:inset 0 2px 0 var(--rd),inset 0 -2px 0 var(--rd)}
+.bgrid .bn.fhi{font-weight:700}
+.bt tr.fhi td{background:var(--rd-soft);color:var(--rd)}
+.bt tr.fhi td:first-child{box-shadow:inset 3px 0 0 var(--rd)}
+.c0{background:var(--irq-soft)} .c1{background:var(--stk-soft)} .c2{background:var(--rd-soft)} .cr{background:var(--soft);color:var(--muted)}
+.bt{width:100%;border-collapse:collapse;font-size:13px}
+.bt th{font:600 11px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:5px 8px;border-bottom:1px solid var(--line)}
+.bt td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.bt td:nth-child(1),.bt td:nth-child(3){font-family:var(--f-mono);white-space:nowrap}
+.bt td:nth-child(2){font-weight:600;white-space:nowrap}
+.bx-src{font-size:12px;color:var(--muted)}
+.bx-src a{color:var(--rd)}
+@media (max-width:1100px){
+  .app{height:auto;grid-template-rows:none}
+  .stages{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .stage{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .code{min-height:360px;max-height:460px}.mm{min-height:520px;grid-template-columns:120px minmax(0,1fr)}.regs{min-height:380px}.stack{min-height:440px}
+  .foot{grid-template-columns:minmax(0,1fr);position:sticky;bottom:env(safe-area-inset-bottom,0px)}
+}
+@media (max-width:640px){.stage{grid-template-columns:minmax(0,1fr)}}
+@media (prefers-reduced-motion:reduce){.mk{transition:none}}
+</style>
+
+<div class="app">
+  <header class="top">
+    <h1>SysTick Interrupt Lab</h1>
+    <span class="sub">STM32L476 · SysTick interrupts FreeRTOS task myTask02 · C + disassembly from a real -O0 build of the lab code</span>
+    <details><summary>Sources</summary><div class="src"><ol id="srcs"></ol></div></details>
+  </header>
+
+  <nav class="stages" id="stages" aria-label="Stages"></nav>
+
+  <main class="stage">
+    <section class="card">
+      <h2>Code · C + disassembly</h2>
+      <div class="who" id="who"></div>
+      <div class="file" id="file"></div>
+      <div class="code" id="code"></div>
+      <div class="key"><span><i style="background:var(--irq)"></i>executed this click</span><span><i style="background:var(--rd)"></i>▶ PC: next instruction</span></div>
+    </section>
+    <section class="card">
+      <h2>STM32L476 memory map · 4 GB <span class="hint">click a block to jump · click a row or word: 32-bit layout</span></h2>
+      <div class="mm">
+        <div class="ladder" id="ladder"></div>
+        <div class="detail" id="detail">
+          <div class="sec" id="sec7"></div>
+          <div class="sec" id="sec2"></div>
+          <div class="sec sram" id="sec1">
+            <div class="sechd" id="sec1hd"></div>
+            <div class="stack mstack" id="mstack"><div class="mk" id="mk-msp"><em>MSP</em></div></div>
+            <div class="gap">⋮ main stack area continues down (not used in this example)</div>
+            <div class="heap"><div class="heaphd" id="heaphd"></div>
+              <div class="gap">⋮ heap 0x20000BD8 – 0x20001367 (defaultTask stack, TCBs, free)</div>
+              <div class="stack" id="stack"><div class="mk" id="mk-psp"><em>PSP</em></div><div class="mk fr" id="mk-fr" hidden><em>write</em></div></div>
+              <div class="gap">⋮ myTask02 stack continues down to 0x200009D8 · heap starts 0x20000768</div>
+            </div>
+            <div class="mrows" id="sram-glob"></div>
+          </div>
+          <div class="sec" id="sec0"></div>
+        </div>
+      </div>
+    </section>
+    <section class="card">
+      <h2>CPU registers <span class="hint">click: bits</span> <span class="pill" id="mode"></span></h2>
+      <div class="regs" id="regs"></div>
+    </section>
+  </main>
+
+  <div class="bx-back" id="bx" hidden role="dialog" aria-modal="true" aria-labelledby="bx-t">
+    <div class="bx">
+      <div class="bx-hd"><div><h3 id="bx-t"></h3><div class="sub" id="bx-sub"></div></div><button class="bx-close" id="bx-x">Close ✕</button></div>
+      <div class="bx-val" id="bx-v"></div>
+      <div class="bgrid-wrap"><div class="bgrid" id="bx-g"></div></div>
+      <table class="bt"><thead><tr><th>Bits</th><th>Field</th><th>Value</th><th>Meaning</th></tr></thead><tbody id="bx-tb"></tbody></table>
+      <div class="bx-src" id="bx-src"></div>
+    </div>
+  </div>
+
+  <footer class="foot">
+    <div class="ev" aria-live="polite"><div class="no" id="ev-no"></div><h3 id="ev-t"></h3><p id="ev-p"></p></div>
+    <div class="ctl">
+      <button class="btn" id="prev">◀ Back</button>
+      <button class="btn go" id="next">Next event ▶</button>
+      <button class="btn" id="play">Run</button>
+    </div>
+  </footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=id=>document.getElementById(id);
+const hx=n=>'0x'+((n>>>0).toString(16).toUpperCase().padStart(8,'0'));
+const clone=o=>JSON.parse(JSON.stringify(o));
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+const SRCS=[
+ ['Disassembly: lab code (StartTask02, slide 10) + CMSIS-FreeRTOS SysTick_Handler + FreeRTOS V10.3.1 kernel, compiled with arm-none-eabi-gcc 13.2.1 -O0 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard. V10.3.1 has the same line numbers as your slides (port.c 488–505, tasks.c 2725). Addresses are from this build; your .elf will differ.',null],
+ ['FreeRTOS-Kernel tag V10.3.1-kernel-only (tasks.c, port.c, portmacro.h)','https://github.com/FreeRTOS/FreeRTOS-Kernel/tree/V10.3.1-kernel-only'],
+ ['CMSIS-FreeRTOS cmsis_os2.c: SysTick_Handler source','https://github.com/ARM-software/CMSIS-FreeRTOS/blob/main/CMSIS/RTOS2/FreeRTOS/Source/cmsis_os2.c'],
+ ['Lab deck "FreeRTOS with STM32 101.pptx": slides 10, 18, 22–24',null],
+ ['Y. Zhu, Embedded Systems with ARM Cortex-M Microcontrollers: §11.4 vector table, §11.5 stacking (Fig. 11-5), Table 11-4 SysTick registers, §23.1.2 EXC_RETURN',null],
+ ['ARMv7-M Architecture Reference Manual, Exception entry behavior: SP decremented before the stores; PushStack()/ExceptionTaken() pseudocode; "only the stack locations, not the store order, are architected"; R0–R3, R12, APSR UNKNOWN on entry','https://developer.arm.com/documentation/ddi0403/d/System-Level-Architecture/System-Level-Programmers--Model/ARMv7-M-exception-model/Exception-entry-behavior'],
+ ['ARMv7-M ARM, Exception return behavior: EXC_RETURN table, PopStack() reads then increments SP','https://developer.arm.com/documentation/ddi0403/d/System-Level-Architecture/System-Level-Programmers--Model/ARMv7-M-exception-model/Exception-return-behavior'],
+ ['Frame layout (xPSR at frame+0x1C … R0 at frame+0x00): ARMv7-M ARM PushStack(). Stores shown top-down, one word per click.','https://developer.arm.com/documentation/ddi0403/d/System-Level-Architecture/System-Level-Programmers--Model/ARMv7-M-exception-model/Exception-entry-behavior'],
+ ['Cortex-M4 TRM r0p1, Exception handling: vector fetched in parallel with state saving','https://developer.arm.com/documentation/100166/0001/Programmers-Model/Exceptions/Exception-handling-and-prioritization'],
+ ['ARMv7-M ARM: SysTick operation and SYST_CSR (COUNTFLAG, TICKINT, reload on next clock), ICSR, SHPR3, execution priority','https://developer.arm.com/documentation/ddi0403/d/System-Level-Architecture/System-Address-Map/The-system-timer--SysTick/SysTick-operation'],
+ ['ST DS10198 STM32L476 datasheet, Figure 18 memory map: eight 512 MB blocks (Code, SRAM, Peripherals, FMC, QUADSPI, Cortex-M4 internal peripherals)','https://www.st.com/resource/en/datasheet/stm32l476rg.pdf'],
+ ['ST stm32l476xx.h (CMSIS device header): FLASH 0x08000000–0x080FFFFF, SRAM1 0x20000000 (96 KB), SRAM2 0x10000000 (32 KB), APB1/APB2/AHB1/AHB2 bases, FMC, QUADSPI, UID','https://github.com/STMicroelectronics/cmsis-device-l4/blob/master/Include/stm32l476xx.h'],
+ ['STM32L4 HAL stm32l4xx_hal_flash_ex.h: OTP area 0x1FFF7000–0x1FFF73FF','https://github.com/STMicroelectronics/stm32l4xx-hal-driver/blob/master/Inc/stm32l4xx_hal_flash_ex.h'],
+ ['ARMv7-M ARM Table 10.1/10.2: system address map, PPB 0xE0000000–0xE00FFFFF','https://developer.arm.com/documentation/ddi0403/d/System-Level-Architecture/System-Address-Map/The-system-address-map'],
+ ['Lecture 9: Interrupts (EXTI version this adapts)','https://www.youtube.com/watch?v=uFBNf7F3l60']
+];
+$('srcs').innerHTML=SRCS.map(s=>`<li>${s[1]?`<a href="${s[1]}" target="_blank" rel="noopener">${s[0]}</a>`:s[0]}</li>`).join('')+'<li style="list-style:none;margin-top:4px">Example values: 80 MHz clock (LOAD = 79 999), the value of i, xTickCount = 3. R1/R12 = 0xA5A5A5A5 assumes the stack fill seen in the lab.</li>';
+
+/* ---------- listings: C|line|text  A|addr|instr|comment  G|text ---------- */
+function P(txt){return txt.trim().split('\n').map(r=>{const p=r.split('|');
+  if(p[0]==='C') return {t:'C',n:p[1],s:p.slice(2).join('|')};
+  if(p[0]==='A') return {t:'A',a:parseInt(p[1],16),s:p[2],c:p[3]||''};
+  return {t:'G',s:p[1]};});}
+const CODE={
+task:{fn:'StartTask02()',f:'main.c',l:P(`
+C|316|void StartTask02(void *argument)
+C|317|{
+A|08000074|push   {r7, lr}|
+A|08000076|sub    sp, #16|
+A|08000078|add    r7, sp, #0|
+A|0800007A|str    r0, [r7, #4]|argument
+C|319|  int count = 0;
+A|0800007C|movs   r3, #0|
+A|0800007E|str    r3, [r7, #12]|count = 0
+C|323|    for(;i<100000;i++){
+A|08000080|b.n    0x0800008E|
+C|324|      __NOP();
+A|08000082|nop|
+C|323|    for(;i<100000;i++){
+A|08000084|ldr    r3, [pc, #32]|r3 = &i
+A|08000086|ldr    r3, [r3, #0]|r3 = i
+A|08000088|adds   r3, #1|i + 1
+A|0800008A|ldr    r2, [pc, #28]|r2 = &i
+A|0800008C|str    r3, [r2, #0]|i = r3
+A|0800008E|ldr    r3, [pc, #24]|r3 = &i
+A|08000090|ldr    r3, [r3, #0]|r3 = i
+A|08000092|ldr    r2, [pc, #24]|r2 = 99999
+A|08000094|cmp    r3, r2|
+A|08000096|ble.n  0x08000082|loop while i <= 99999
+C|326|    osDelay(2);
+A|08000098|movs   r0, #2|
+A|0800009A|bl     0x08000040|osDelay
+C|327|    count = count + 1;
+A|0800009E|ldr    r3, [r7, #12]|
+A|080000A0|adds   r3, #1|
+A|080000A2|str    r3, [r7, #12]|
+A|080000A4|b.n    0x0800008E|`)},
+cmsis:{fn:'SysTick_Handler()',f:'cmsis_os2.c',l:P(`
+C||void SysTick_Handler (void) {
+A|08000128|push   {r7, lr}|R7, LR (EXC_RETURN) → MSP
+A|0800012A|add    r7, sp, #0|
+C||  SysTick->CTRL;
+A|0800012C|ldr    r3, [pc, #20]|r3 = 0xE000E010
+A|0800012E|ldr    r3, [r3, #0]|read SYST_CTRL
+C||  if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
+A|08000130|bl     0x08000AE0|xTaskGetSchedulerState
+A|08000134|mov    r3, r0|
+A|08000136|cmp    r3, #1|1 = NOT_STARTED
+A|08000138|beq.n  0x0800013E|
+C||    xPortSysTickHandler();
+A|0800013A|bl     0x080010C8|xPortSysTickHandler
+C||}
+A|0800013E|nop|
+A|08000140|pop    {r7, pc}|PC ← saved LR`)},
+gss:{fn:'xTaskGetSchedulerState()',f:'tasks.c',l:P(`
+C|3986|BaseType_t xTaskGetSchedulerState( void )
+C|3987|{
+A|08000AE0|push   {r7}|
+A|08000AE2|sub    sp, #12|
+A|08000AE4|add    r7, sp, #0|
+C|3990|  if( xSchedulerRunning == pdFALSE )
+A|08000AE6|ldr    r3, [pc, #44]|r3 = &xSchedulerRunning
+A|08000AE8|ldr    r3, [r3, #0]|
+A|08000AEA|cmp    r3, #0|
+A|08000AEC|bne.n  0x08000AF4|
+C|3992|    xReturn = taskSCHEDULER_NOT_STARTED;
+A|08000AEE|movs   r3, #1|
+A|08000AF0|str    r3, [r7, #4]|
+A|08000AF2|b.n    0x08000B06|
+C|3996|    if( uxSchedulerSuspended == ( UBaseType_t ) pdFALSE )
+A|08000AF4|ldr    r3, [pc, #32]|r3 = &uxSchedulerSuspended
+A|08000AF6|ldr    r3, [r3, #0]|
+A|08000AF8|cmp    r3, #0|
+A|08000AFA|bne.n  0x08000B02|
+C|3998|      xReturn = taskSCHEDULER_RUNNING;
+A|08000AFC|movs   r3, #2|
+A|08000AFE|str    r3, [r7, #4]|
+A|08000B00|b.n    0x08000B06|
+C|4002|      xReturn = taskSCHEDULER_SUSPENDED;
+A|08000B02|movs   r3, #0|
+A|08000B04|str    r3, [r7, #4]|
+C|4006|  return xReturn;
+A|08000B06|ldr    r3, [r7, #4]|
+C|4007|}
+A|08000B08|mov    r0, r3|R0 = return value
+A|08000B0A|adds   r7, #12|
+A|08000B0C|mov    sp, r7|
+A|08000B0E|ldr.w  r7, [sp], #4|
+A|08000B12|bx     lr|`)},
+port:{fn:'xPortSysTickHandler()',f:'port.c',l:P(`
+C|488|void xPortSysTickHandler( void )
+C|489|{
+A|080010C8|push   {r7, lr}|
+A|080010CA|sub    sp, #8|
+A|080010CC|add    r7, sp, #0|
+C|494|  portDISABLE_INTERRUPTS();   /* inline vPortRaiseBASEPRI(), portmacro.h 195 */
+A|080010CE|mov.w  r3, #80|0x50 = 5 << 4
+A|080010D2|msr    BASEPRI, r3|
+A|080010D6|isb    sy|
+A|080010DA|dsb    sy|
+A|080010DE|str    r3, [r7, #4]|
+A|080010E0|nop|
+C|497|    if( xTaskIncrementTick() != pdFALSE )
+A|080010E2|bl     0x08000704|xTaskIncrementTick
+A|080010E6|mov    r3, r0|
+A|080010E8|cmp    r3, #0|
+A|080010EA|beq.n  0x080010F4|skip 501 if pdFALSE
+C|501|      portNVIC_INT_CTRL_REG = portNVIC_PENDSVSET_BIT;
+A|080010EC|ldr    r3, [pc, #24]|r3 = 0xE000ED04 (ICSR)
+A|080010EE|mov.w  r2, #0x10000000|bit 28 = PENDSVSET
+A|080010F2|str    r2, [r3, #0]|
+C|504|  portENABLE_INTERRUPTS();   /* inline vPortSetBASEPRI( 0 ), portmacro.h 229 */
+A|080010F4|movs   r3, #0|
+A|080010F6|str    r3, [r7, #0]|
+A|080010F8|ldr    r3, [r7, #0]|
+A|080010FA|msr    BASEPRI, r3|
+A|080010FE|nop|
+C|505|}
+A|08001100|nop|
+A|08001102|adds   r7, #8|
+A|08001104|mov    sp, r7|
+A|08001106|pop    {r7, pc}|`)},
+tick:{fn:'xTaskIncrementTick()',f:'tasks.c',l:P(`
+C|2707|BaseType_t xTaskIncrementTick( void )
+C|2708|{
+A|08000704|push   {r7, lr}|
+A|08000706|sub    sp, #24|
+A|08000708|add    r7, sp, #0|
+C|2711|BaseType_t xSwitchRequired = pdFALSE;
+A|0800070A|movs   r3, #0|
+A|0800070C|str    r3, [r7, #20]|
+C|2717|  if( uxSchedulerSuspended == ( UBaseType_t ) pdFALSE )
+A|0800070E|ldr    r3, [pc, #316]|r3 = &uxSchedulerSuspended
+A|08000710|ldr    r3, [r3, #0]|
+A|08000712|cmp    r3, #0|
+A|08000714|bne.w  0x08000836|
+C|2721|    const TickType_t xConstTickCount = xTickCount + ( TickType_t ) 1;
+A|08000718|ldr    r3, [pc, #308]|r3 = &xTickCount
+A|0800071A|ldr    r3, [r3, #0]|r3 = xTickCount
+A|0800071C|adds   r3, #1|
+A|0800071E|str    r3, [r7, #16]|xConstTickCount
+C|2725|    xTickCount = xConstTickCount;
+A|08000720|ldr    r2, [pc, #300]|r2 = &xTickCount
+A|08000722|ldr    r3, [r7, #16]|
+A|08000724|str    r3, [r2, #0]|write xTickCount
+C|2727|    if( xConstTickCount == ( TickType_t ) 0U )
+A|08000726|ldr    r3, [r7, #16]|
+A|08000728|cmp    r3, #0|
+A|0800072A|bne.n  0x0800076E|
+G|⋮ lines 2729–2737 (tick wrapped to 0) not run
+C|2740|    if( xConstTickCount >= xNextTaskUnblockTime )
+A|0800076E|ldr    r3, [pc, #240]|r3 = &xNextTaskUnblockTime
+A|08000770|ldr    r3, [r3, #0]|
+A|08000772|ldr    r2, [r7, #16]|r2 = xConstTickCount
+A|08000774|cmp    r2, r3|
+A|08000776|bcc.n  0x0800080C|jump if r2 < r3
+G|⋮ lines 2741–2818 (wake delayed tasks) not run
+C|2823|      if( listCURRENT_LIST_LENGTH( &( pxReadyTasksLists[ pxCurrentTCB->uxPriority ] ) ) > ( UBaseType_t ) 1 )
+A|0800080C|ldr    r3, [pc, #92]|r3 = &pxCurrentTCB
+A|0800080E|ldr    r3, [r3, #0]|r3 = pxCurrentTCB
+A|08000810|ldr    r2, [r3, #44]|r2 = uxPriority
+A|08000812|ldr    r1, [pc, #84]|r1 = pxReadyTasksLists
+A|08000814|mov    r3, r2|
+A|08000816|lsls   r3, r3, #2|
+A|08000818|add    r3, r2|
+A|0800081A|lsls   r3, r3, #2|r3 = priority × 20
+A|0800081C|add    r3, r1|
+A|0800081E|ldr    r3, [r3, #0]|r3 = number of Ready tasks
+A|08000820|cmp    r3, #1|
+A|08000822|bls.n  0x08000828|
+C|2825|        xSwitchRequired = pdTRUE;
+A|08000824|movs   r3, #1|
+A|08000826|str    r3, [r7, #20]|
+C|2851|      if( xYieldPending != pdFALSE )
+A|08000828|ldr    r3, [pc, #68]|r3 = &xYieldPending
+A|0800082A|ldr    r3, [r3, #0]|
+A|0800082C|cmp    r3, #0|
+A|0800082E|beq.n  0x08000840|
+G|⋮ lines 2853–2864 not run
+C|2875|  return xSwitchRequired;
+A|08000840|ldr    r3, [r7, #20]|
+C|2876|}
+A|08000842|mov    r0, r3|R0 = return value
+A|08000844|adds   r7, #24|
+A|08000846|mov    sp, r7|
+A|08000848|pop    {r7, pc}|`)}
+};
+
+/* ---------- model ---------- */
+const FR=['R0','R1','R2','R3','R12','LR','PC','xPSR'];
+const SP0=0x20000BB8, SP1=0x20000B98;
+const fa=r=>SP1+4*FR.indexOf(r);
+const SLOTS=[]; for(let a=0x20000BCC;a>=0x20000B98;a-=4) SLOTS.push(a);
+const STAGES=['SysTick counts','Interrupt request','Save (push)','Enter handler','Handler runs','Return','Restore (pop)','Resume'];
+const init={
+  mode:'Thread', frame:null, u:{},
+  r:{R0:0x00000000,R1:0xA5A5A5A5,R2:0x0001869F,R3:0x0000A3F1,R12:0xA5A5A5A5,LR:0x08000D95,PC:0x08000084,xPSR:0x81000000,PSP:SP0,BASEPRI:0},
+  n:{R0:'argument (NULL)',R1:'not used by task',R2:'99999 (loop limit)',R3:'i',R12:'not used by task',LR:'prvTaskExitError',PC:'StartTask02',xPSR:'N=1 · IPSR=0',PSP:'task stack pointer',BASEPRI:'no masking'},
+  m:{CTRL:0,LOAD:79999,VAL:2,PEND:0,I:0x0000A3F1,XTICK:3,NEXT:5},
+  sl:{}
+};
+const OLD={0x20000BCC:[0x08000D95,'LR (prologue push)'],0x20000BC8:[0xA5A5A5A5,'R7 (prologue push)'],0x20000BC4:[0x00000000,'count (local)'],0x20000BC0:[0xA5A5A5A5,'unused'],0x20000BBC:[0x00000000,'argument (local)'],0x20000BB8:[0xA5A5A5A5,'unused']};
+SLOTS.forEach(a=>init.sl[a]=OLD[a]?{v:OLD[a][0],n:OLD[a][1],c:'old'}:{v:null,n:'free',c:'free'});
+const TASKR=clone(init.r);
+
+/* r(st,{reg:[value,note]}) */
+const R=(st,o)=>{for(const k in o){st.r[k]=o[k][0]; delete st.u[k]; if(o[k][1]!==undefined) st.n[k]=o[k][1];}};
+const HW='hw';
+const push=(r,why)=>({s:2,t:`Store ${r} → ${hx(fa(r))}`,p:why,c:['task',[],0x08000088,HW,'Hardware action. No instruction runs. Task stopped before 0x08000088.'],
+  f:st=>{st.sl[fa(r)]={v:st.r[r],n:'saved '+r,c:'frame'};st.frame=fa(r);},h:[['a','w',fa(r)],['r','r',r]],fly:['r:'+r,'a:'+fa(r),hx(TASKR[r]),false]});
+const pop=(r,why)=>({s:6,t:`Read ${r} ← ${hx(fa(r))}`,p:why,c:['task',[],0x08000088,HW,'Hardware action (exception return). No instruction runs.'],
+  f:st=>{st.r[r]=st.sl[fa(r)].v;delete st.u[r];st.n[r]=init.n[r];st.sl[fa(r)].c='stale';st.sl[fa(r)].n='free (old '+r+')';},h:[['r','w',r],['a','r',fa(r)]],fly:['a:'+fa(r),'r:'+r,hx(TASKR[r]),true]});
+
+/* c: [listing, executed addresses, next PC, 'cpu'|'hw', banner] */
+const EV=[
+ {s:0,t:'SYST_VAL = 2 · CPU runs ldr r3, [pc, #32]',c:['task',[0x08000084],0x08000086,'cpu','CPU runs StartTask02'],
+  p:'SYST_VAL (0xE000E018) counts down every clock, in hardware. Meanwhile the CPU runs the task: <code>ldr r3, [pc, #32]</code> loads the address of <code>i</code> into R3.',
+  f:st=>{R(st,{R3:[0x20000008,'&i'],PC:[0x08000086]});},h:[['m','r','VAL'],['r','w','R3']]},
+ {s:0,t:'SYST_VAL 2 → 1 · CPU runs ldr r3, [r3, #0]',c:['task',[0x08000086],0x08000088,'cpu','CPU runs StartTask02'],
+  p:'R3 now holds the value of <code>i</code>, read from SRAM 0x20000008. Next instruction would be <code>adds r3, #1</code> (the i++).',
+  f:st=>{st.m.VAL=1;R(st,{R3:[0x0000A3F1,'i'],PC:[0x08000088]});},h:[['m','w','VAL'],['r','w','R3'],['m','r','I']],fly:['m:I','r:R3','0x0000A3F1',true]},
+ {s:0,t:'SYST_VAL 1 → 0: COUNTFLAG = 1, SysTick pending',c:['task',[],0x08000088,HW,'Hardware event. PC = 0x08000088 is next.'],
+  p:'The count transition 1 → 0 sets COUNTFLAG (SYST_CSR bit 16). Because TICKINT = 1, the same transition makes the SysTick exception pending: ICSR.PENDSTSET = 1, VECTPENDING = 15.',
+  f:st=>{st.m.VAL=0;st.m.CTRL=1;st.m.PEND=1;},h:[['m','w','VAL'],['m','w','CTRL'],['m','w','PEND']]},
+
+ {s:1,t:'Next clock: VAL reloads 79 999',c:['task',[],0x08000088,HW,'Hardware event. PC = 0x08000088 is next.'],
+  p:'On the next clock edge the counter reloads SYST_RVR (79 999) and keeps counting. The next tick comes 80 000 clocks = 1 ms after the last one.',f:st=>{st.m.VAL=79999;},h:[['m','w','VAL'],['m','r','LOAD']]},
+ {s:1,t:'Priority check: SysTick is taken',c:['task',[],0x08000088,HW,'Task stopped. adds r3, #1 at 0x08000088 is NOT executed.'],
+  p:'With no exception active, Thread code runs at the lowest level (max priority value + 1). SysTick priority 0xF0 is higher, and PRIMASK = 0, BASEPRI = 0 do not mask it, so the exception is taken. Return address = next instruction, 0x08000088.',f:()=>{},h:[['r','r','BASEPRI'],['m','r','PEND']]},
+
+ {s:2,t:'PSP − 32 → 0x20000B98 (before any store)',c:['task',[],0x08000088,HW,'Hardware action. No instruction runs.'],
+  p:'ARM: "the hardware decrements the stack pointer to the end of the new stack frame before it stores data onto the stack". The task uses PSP, so PSP goes 0x20000BB8 → 0x20000B98 (8 words × 4 bytes). 0x20000BB8 is 8-byte aligned, so no padding word.',
+  f:st=>{st.r.PSP=SP1;st.frame=null;},h:[['r','w','PSP']]},
+ push('xPSR','1st store, top of the frame (frame+0x1C). xPSR = N, Z, C, V flags of <code>cmp r3, r2</code> + Thumb bit. Stores go down one word at a time.'),
+ push('PC','2nd store (frame+0x18). PC = 0x08000088, the <code>adds r3, #1</code> not yet run: the return address.'),
+ push('LR','3rd store (frame+0x14). LR = 0x08000D95, the task\'s return address. The handler will overwrite LR.'),
+ push('R12','4th store (frame+0x10). R0–R3 and R12 are the registers a C (AAPCS) function may overwrite, so the handler can be a plain C function.'),
+ push('R3','5th store (frame+0x0C). R3 = 0x0000A3F1 = value of <code>i</code>, not yet incremented.'),
+ push('R2','6th store (frame+0x08). R2 = 0x0001869F, loop limit 99 999.'),
+ push('R1','7th store (frame+0x04). Saved anyway; hardware does not know which registers the task uses.'),
+ push('R0','8th store (frame+0x00) = 0x20000B98, where PSP points. The 8-word frame is complete.'),
+
+ {s:3,t:'Read vector 15 at 0x0800003C = 0x08000129',c:['task',[],0x08000088,HW,'Hardware action. No instruction runs.'],
+  p:'PC = vector table + 4 × exception number = 0x08000000 + 4 × 15 = 0x0800003C. On Cortex-M4 this read happens in parallel with the register stores (shown separately here).',f:st=>{st.frame=null;},h:[['m','r','VEC']]},
+ {s:3,t:'PC = 0x08000128 (SysTick_Handler)',c:['cmsis',[],0x08000128,HW,'Hardware loads PC. ▶ = first instruction of SysTick_Handler.'],
+  p:'Bit 0 of the vector (…129) only marks Thumb code, so PC = 0x08000128: <code>push {r7, lr}</code>.',
+  f:st=>{R(st,{PC:[0x08000128,'SysTick_Handler']});},h:[['r','w','PC'],['m','r','VEC']],fly:['m:VEC','r:PC','0x08000128',true]},
+ {s:3,t:'LR = 0xFFFFFFFD (EXC_RETURN)',c:['cmsis',[],0x08000128,HW,'Hardware sets LR.'],
+  p:'LR gets EXC_RETURN, not an address. With an FPU it is Ones(27):NOT(CONTROL.FPCA):1:SPSEL:01. FPCA = 0, SPSEL = 1 → 0xFFFFFFFD = return to Thread mode, Process stack, basic 8-word frame.',f:st=>{R(st,{LR:[0xFFFFFFFD,'EXC_RETURN']});},h:[['r','w','LR']]},
+ {s:3,t:'Handler mode, IPSR = 15, R0–R3/R12 UNKNOWN',c:['cmsis',[],0x08000128,HW,'Hardware switches to Handler mode. SP is now MSP.'],
+  p:'ExceptionTaken(): IPSR = 15, CONTROL.SPSEL = 0 (handler uses MSP), PENDSTSET clears (active, not pending). ARM also defines R0–R3, R12 and the APSR flags as UNKNOWN here: the handler must not rely on them. The task\'s values are safe in the frame.',
+  f:st=>{st.mode='Handler';st.r.xPSR=0x8100000F;st.n.xPSR='flags UNKNOWN · IPSR = 15';['R0','R1','R2','R3','R12','xPSR'].forEach(k=>st.u[k]=1);['R0','R1','R2','R3','R12'].forEach(k=>st.n[k]='do not rely (ARM)');st.m.PEND=0;},
+  h:[['r','w','xPSR'],['r','w','R0'],['r','w','R1'],['r','w','R2'],['r','w','R3'],['r','w','R12'],['m','w','PEND']]},
+
+ {s:4,t:'push {r7, lr} → MSP',c:['cmsis',[0x08000128,0x0800012A],0x0800012C,'cpu','CPU runs SysTick_Handler'],
+  p:'The handler\'s first instruction saves R7 and LR (= 0xFFFFFFFD) on MSP, because the coming <code>bl</code> calls overwrite LR.',f:st=>{R(st,{PC:[0x0800012C]});},h:[]},
+ {s:4,t:'SysTick->CTRL; → read SYST_CTRL',c:['cmsis',[0x0800012C,0x0800012E],0x08000130,'cpu','CPU runs SysTick_Handler'],
+  p:'R3 = 0xE000E010, then R3 = SYST_CTRL = 0x00010007 (COUNTFLAG, CLKSOURCE, TICKINT, ENABLE). Reading CTRL clears COUNTFLAG.',
+  f:st=>{st.m.CTRL=0;R(st,{R3:[0x00010007,'SYST_CTRL value'],PC:[0x08000130]});},h:[['m','r','CTRL'],['r','w','R3']],fly:['m:CTRL','r:R3','0x00010007',true]},
+ {s:4,t:'bl xTaskGetSchedulerState',c:['cmsis',[0x08000130],0x08000AE0,'cpu','CPU runs SysTick_Handler'],
+  p:'BL jumps to 0x08000AE0 and puts the return address 0x08000135 (0x08000134 + Thumb bit) into LR.',
+  f:st=>{R(st,{LR:[0x08000135,'return → SysTick_Handler'],PC:[0x08000AE0,'xTaskGetSchedulerState']});},h:[['r','w','LR'],['r','w','PC']]},
+ {s:4,t:'Scheduler running? Checks two variables',c:['gss',[0x08000AE0,0x08000AE2,0x08000AE4,0x08000AE6,0x08000AE8,0x08000AEA,0x08000AEC,0x08000AF4,0x08000AF6,0x08000AF8,0x08000AFA],0x08000AFC,'cpu','CPU runs xTaskGetSchedulerState'],
+  p:'xSchedulerRunning = 1 (not pdFALSE), so <code>bne</code> jumps to line 3996. uxSchedulerSuspended = 0, so <code>bne</code> falls through to line 3998.',
+  f:st=>{R(st,{R3:[0,'uxSchedulerSuspended'],PC:[0x08000AFC],xPSR:[0x6100000F,'Z=1 C=1 · IPSR=15']});},h:[['r','w','R3']]},
+ {s:4,t:'return taskSCHEDULER_RUNNING (2)',c:['gss',[0x08000AFC,0x08000AFE,0x08000B00,0x08000B06,0x08000B08,0x08000B0A,0x08000B0C,0x08000B0E,0x08000B12],0x08000134,'cpu','CPU runs xTaskGetSchedulerState'],
+  p:'R0 = 2 is the return value. <code>bx lr</code> jumps back to 0x08000134 in SysTick_Handler.',
+  f:st=>{R(st,{R3:[2],R0:[2,'return value 2 = RUNNING'],PC:[0x08000134,'SysTick_Handler']});},h:[['r','w','R0'],['r','w','PC']]},
+ {s:4,t:'2 == 1? No → call xPortSysTickHandler',c:['cmsis',[0x08000134,0x08000136,0x08000138,0x0800013A],0x080010C8,'cpu','CPU runs SysTick_Handler'],
+  p:'<code>cmp r3, #1</code>: 2 ≠ NOT_STARTED, so <code>beq</code> does not jump. <code>bl</code> calls xPortSysTickHandler; LR = 0x0800013F.',
+  f:st=>{R(st,{R3:[2,'scheduler state'],xPSR:[0x2100000F,'C=1 · IPSR=15'],LR:[0x0800013F,'return → SysTick_Handler'],PC:[0x080010C8,'xPortSysTickHandler']});},h:[['r','w','LR'],['r','w','PC']]},
+ {s:4,t:'xPortSysTickHandler prologue',c:['port',[0x080010C8,0x080010CA,0x080010CC],0x080010CE,'cpu','CPU runs xPortSysTickHandler'],
+  p:'Saves R7 and LR on MSP and makes room for 2 local words. Line 488 of port.c (lab slide 23).',f:st=>{R(st,{PC:[0x080010CE]});},h:[]},
+ {s:4,t:'portDISABLE_INTERRUPTS(): BASEPRI = 0x50',c:['port',[0x080010CE,0x080010D2,0x080010D6,0x080010DA,0x080010DE,0x080010E0],0x080010E2,'cpu','CPU runs xPortSysTickHandler'],
+  p:'Line 494. The macro becomes <code>mov.w r3, #80</code> + <code>msr BASEPRI, r3</code>. Interrupts with priority 5–15 now wait.',
+  f:st=>{R(st,{R3:[0x50],BASEPRI:[0x50,'masks priority 5–15'],PC:[0x080010E2]});},h:[['r','w','BASEPRI'],['r','w','R3']]},
+ {s:4,t:'bl xTaskIncrementTick',c:['port',[0x080010E2],0x08000704,'cpu','CPU runs xPortSysTickHandler'],
+  p:'Line 497 calls the tick function. LR = 0x080010E7.',f:st=>{R(st,{LR:[0x080010E7,'return → xPortSysTickHandler'],PC:[0x08000704,'xTaskIncrementTick']});},h:[['r','w','LR'],['r','w','PC']]},
+ {s:4,t:'Prologue, xSwitchRequired = pdFALSE',c:['tick',[0x08000704,0x08000706,0x08000708,0x0800070A,0x0800070C],0x0800070E,'cpu','CPU runs xTaskIncrementTick'],
+  p:'Saves R7, LR on MSP, reserves 24 bytes of locals, sets local xSwitchRequired = 0 (line 2711).',f:st=>{R(st,{R3:[0],PC:[0x0800070E]});},h:[['r','w','R3']]},
+ {s:4,t:'uxSchedulerSuspended == 0? Yes',c:['tick',[0x0800070E,0x08000710,0x08000712,0x08000714],0x08000718,'cpu','CPU runs xTaskIncrementTick'],
+  p:'Line 2717. Scheduler not suspended, so <code>bne.w</code> does not jump; continue to line 2721.',f:st=>{R(st,{R3:[0,'uxSchedulerSuspended'],xPSR:[0x6100000F,'Z=1 C=1 · IPSR=15'],PC:[0x08000718]});},h:[['r','w','R3']]},
+ {s:4,t:'Line 2721: xConstTickCount = 3 + 1',c:['tick',[0x08000718,0x0800071A,0x0800071C,0x0800071E],0x08000720,'cpu','CPU runs xTaskIncrementTick'],
+  p:'R3 = &xTickCount (0x20000738), R3 = xTickCount = 3, <code>adds</code> → 4, stored in the local xConstTickCount on MSP.',
+  f:st=>{R(st,{R3:[4,'xConstTickCount'],PC:[0x08000720]});},h:[['m','r','XTICK'],['r','w','R3']],fly:['m:XTICK','r:R3','0x00000003',true]},
+ {s:4,t:'Line 2725: xTickCount = 4',c:['tick',[0x08000720,0x08000722,0x08000724],0x08000726,'cpu','CPU runs xTaskIncrementTick'],
+  p:'<code>str r3, [r2, #0]</code> writes 4 to xTickCount in SRAM. This is the variable you watched in the lab (slides 18, 22).',
+  f:st=>{st.m.XTICK=4;R(st,{R2:[0x20000738,'&xTickCount'],R3:[4],PC:[0x08000726]});},h:[['r','w','R2'],['m','w','XTICK']],fly:['r:R3','m:XTICK','0x00000004',false]},
+ {s:4,t:'Line 2727: wrapped to 0? No',c:['tick',[0x08000726,0x08000728,0x0800072A],0x0800076E,'cpu','CPU runs xTaskIncrementTick'],
+  p:'4 ≠ 0, so <code>bne</code> jumps over lines 2729–2737 to line 2740.',f:st=>{R(st,{xPSR:[0x2100000F,'C=1 · IPSR=15'],PC:[0x0800076E]});},h:[['r','w','PC']]},
+ {s:4,t:'Line 2740: 4 ≥ 5? No',c:['tick',[0x0800076E,0x08000770,0x08000772,0x08000774,0x08000776],0x0800080C,'cpu','CPU runs xTaskIncrementTick'],
+  p:'R3 = xNextTaskUnblockTime = 5 (defaultTask sleeps until tick 5), R2 = 4. <code>cmp</code> + <code>bcc</code>: 4 < 5, so it jumps over the wake-up code. No task wakes.',
+  f:st=>{R(st,{R3:[5,'xNextTaskUnblockTime'],R2:[4,'xConstTickCount'],xPSR:[0x8100000F,'N=1 · IPSR=15'],PC:[0x0800080C]});},h:[['m','r','NEXT'],['r','w','R3'],['r','w','R2']],fly:['m:NEXT','r:R3','0x00000005',true]},
+ {s:4,t:'Line 2823: other Ready task at this priority? No',c:['tick',[0x0800080C,0x0800080E,0x08000810,0x08000812,0x08000814,0x08000816,0x08000818,0x0800081A,0x0800081C,0x0800081E,0x08000820,0x08000822],0x08000828,'cpu','CPU runs xTaskIncrementTick'],
+  p:'Time slicing check. R2 = myTask02 priority 24, R1 = pxReadyTasksLists, R3 = Ready tasks at priority 24 = 1 (defaultTask is still Blocked). 1 ≤ 1, so <code>bls</code> skips line 2825: no time-slice switch.',
+  f:st=>{R(st,{R1:[0x20000264,'pxReadyTasksLists'],R2:[24,'uxPriority'],R3:[1,'Ready tasks at prio 24'],xPSR:[0x6100000F,'Z=1 C=1 · IPSR=15'],PC:[0x08000828]});},h:[['r','w','R1'],['r','w','R2'],['r','w','R3']]},
+ {s:4,t:'Line 2851: yield pending? No',c:['tick',[0x08000828,0x0800082A,0x0800082C,0x0800082E],0x08000840,'cpu','CPU runs xTaskIncrementTick'],
+  p:'xYieldPending = 0, so <code>beq</code> jumps to the return.',f:st=>{R(st,{R3:[0,'xYieldPending'],PC:[0x08000840]});},h:[['r','w','R3']]},
+ {s:4,t:'return pdFALSE (0)',c:['tick',[0x08000840,0x08000842,0x08000844,0x08000846,0x08000848],0x080010E6,'cpu','CPU runs xTaskIncrementTick'],
+  p:'R0 = xSwitchRequired = 0. <code>pop {r7, pc}</code> takes the return address from MSP: back to 0x080010E6 in xPortSysTickHandler.',
+  f:st=>{R(st,{R0:[0,'return pdFALSE'],R3:[0],PC:[0x080010E6,'xPortSysTickHandler']});},h:[['r','w','R0'],['r','w','PC']]},
+ {s:4,t:'Line 497: pdFALSE → skip PendSV',c:['port',[0x080010E6,0x080010E8,0x080010EA],0x080010F4,'cpu','CPU runs xPortSysTickHandler'],
+  p:'R3 = 0, <code>cmp r3, #0</code>, <code>beq</code> jumps over line 501. PendSV is not requested: no task switch this tick.',f:st=>{R(st,{R3:[0],xPSR:[0x6100000F,'Z=1 C=1 · IPSR=15'],PC:[0x080010F4]});},h:[['r','w','PC']]},
+ {s:4,t:'portENABLE_INTERRUPTS(): BASEPRI = 0',c:['port',[0x080010F4,0x080010F6,0x080010F8,0x080010FA,0x080010FE],0x08001100,'cpu','CPU runs xPortSysTickHandler'],
+  p:'Line 504. <code>msr BASEPRI, r3</code> with R3 = 0: other interrupts may run again.',f:st=>{R(st,{BASEPRI:[0,'no masking'],PC:[0x08001100]});},h:[['r','w','BASEPRI']]},
+ {s:4,t:'Return to SysTick_Handler',c:['port',[0x08001100,0x08001102,0x08001104,0x08001106],0x0800013E,'cpu','CPU runs xPortSysTickHandler'],
+  p:'<code>pop {r7, pc}</code> takes 0x0800013F from MSP: back to 0x0800013E in SysTick_Handler.',f:st=>{R(st,{PC:[0x0800013E,'SysTick_Handler']});},h:[['r','w','PC']]},
+
+ {s:5,t:'pop {r7, pc}: PC ← 0xFFFFFFFD',c:['cmsis',[0x0800013E,0x08000140],null,'cpu','CPU runs SysTick_Handler (last instruction)'],
+  p:'POP loads 0xFFFFFFFD (the LR saved by the first <code>push {r7, lr}</code>) into PC. ARM: in Handler mode, a POP/LDM, LDR or BX that loads 0xFXXXXXXX into PC is an exception return, not a jump.',
+  f:st=>{R(st,{PC:[0xFFFFFFFD,'EXC_RETURN → exception return']});},h:[['r','w','PC']]},
+ {s:5,t:'EXC_RETURN 0xFFFFFFFD → Thread mode, PSP',c:['task',[],0x08000088,HW,'Hardware action. No instruction runs.'],
+  p:'EXC_RETURN[3:0] = 1101: return to Thread mode using the Process stack; bit 4 = 1: basic frame. ARM ExceptionReturn() sets Thread mode and CONTROL.SPSEL = 1, deactivates SysTick, then calls PopStack().',
+  f:st=>{st.mode='Thread';},h:[['r','r','PC'],['r','r','PSP']]},
+
+ pop('R0','R0 ← frame+0x00. Loads shown in address order; ARM architects only the locations, not the load order. PSP does not move until all 8 loads are done.'),
+ pop('R1','R1 ← 0xA5A5A5A5 (the handler had pxReadyTasksLists here).'),
+ pop('R2','R2 ← 0x0001869F, the loop limit again (the handler had 4 here).'),
+ pop('R3','R3 ← 0x0000A3F1 = i again (the handler had 0 here).'),
+ pop('R12','R12 ← task value (it was UNKNOWN during the handler).'),
+ pop('LR','LR ← 0x08000D95, the task\'s LR (the handler left 0x080010E7 here).'),
+ pop('PC','PC ← 0x08000088: the <code>adds r3, #1</code> that never ran.'),
+ pop('xPSR','xPSR ← 0x81000000: flags back, IPSR = 0 (checked by hardware: must be 0 on return to Thread mode).'),
+ {s:6,t:'PSP + 32 → 0x20000BB8 (after the loads)',c:['task',[],0x08000088,HW,'Hardware action. ▶ = next task instruction.'],
+  p:'ARM: "the hardware reads the data from the stack frame and then increments the stack pointer". The 8 words stay in SRAM as leftovers but count as free space.',f:st=>{st.r.PSP=SP0;},h:[['r','w','PSP']]},
+
+ {s:7,t:'Task continues: adds r3, #1',c:['task',[0x08000088],0x0800008A,'cpu','CPU runs StartTask02 again'],
+  p:'The first instruction after the interrupt is the one that was interrupted. R3 = 0x0000A3F1 + 1. The task cannot tell it was stopped; only xTickCount changed (3 → 4).',
+  f:st=>{R(st,{R3:[0x0000A3F2,'i + 1'],PC:[0x0800008A,'StartTask02']});},h:[['r','w','R3'],['m','r','XTICK']]}
+];
+
+/* ---------- MSP (main stack) used by the handler: values from the -O0 disassembly ---------- */
+const MSP0=0x20018000;
+init.r.MSP=MSP0; init.n.MSP='main stack = _estack (vector 0)';
+init.r.R7=0x20000BB8; init.n.R7='frame pointer of StartTask02';
+init.m.SR=1; init.m.SS=0; init.m.YP=0; init.m.PRI=0xF0F00000;
+const MSLOTS=[]; for(let a=0x20017FFC;a>=0x20017FC8;a-=4) MSLOTS.push(a);
+MSLOTS.forEach(a=>init.sl[a]={v:null,n:'free',c:'free'});
+const Wm=(st,a,v,n)=>{st.sl[a]={v,n,c:'mf'};};
+const AUG={
+'SYST_VAL = 2 · CPU runs ldr r3, [pc, #32]':{b:['i','d'],x:'R3 ← [0x080000A8] = 0x20000008 (&i)',l:['LDR (literal)','0x080000A8 → R3']},
+'SYST_VAL 2 → 1 · CPU runs ldr r3, [r3, #0]':{b:['i','s'],x:'R3 ← [R3] = [0x20000008] = 0x0000A3F1 (i)',l:['LDR','0x20000008 → R3']},
+'SYST_VAL 1 → 0: COUNTFLAG = 1, SysTick pending':{b:['req'],x:'SYST_CVR 1 → 0 ⇒ SYST_CSR.COUNTFLAG ← 1; TICKINT = 1 ⇒ ICSR.PENDSTSET ← 1'},
+'Next clock: VAL reloads 79 999':{b:[],x:'SYST_CVR ← SYST_RVR = 79 999'},
+'Priority check: SysTick is taken':{b:['irq'],x:'SHPR3.PRI_15 = 0xF0, higher than Thread level; PRIMASK = 0, BASEPRI = 0 ⇒ take exception 15',h:[['m','r','PRI']]},
+'PSP − 32 → 0x20000B98 (before any store)':{b:[],x:'PSP ← PSP − 0x20 = 0x20000B98'},
+'Read vector 15 at 0x0800003C = 0x08000129':{b:['vec'],x:'0x08000000 + 4 × 15 = 0x0800003C;  [0x0800003C] = 0x08000129'},
+'PC = 0x08000128 (SysTick_Handler)':{b:[],x:'PC ← 0x08000129 AND 0xFFFFFFFE = 0x08000128'},
+'LR = 0xFFFFFFFD (EXC_RETURN)':{b:[],x:'LR ← 0xFFFFFFFD (EXC_RETURN)'},
+'Handler mode, IPSR = 15, R0–R3/R12 UNKNOWN':{b:[],x:'IPSR ← 15; CONTROL.SPSEL ← 0 (SP = MSP); ICSR.PENDSTSET ← 0',h:[['r','r','MSP']]},
+'push {r7, lr} → MSP':{b:['i','s'],x:'MSP ← MSP − 8; [0x20017FFC] ← LR; [0x20017FF8] ← R7; R7 ← MSP',l:['STMDB (push)','R7, LR → 0x20017FF8'],
+  pa:' Then <code>add r7, sp, #0</code> makes R7 the frame pointer. R7 is not in the hardware frame, so the handler saves it itself.',
+  f:st=>{st.r.MSP=0x20017FF8;Wm(st,0x20017FFC,0xFFFFFFFD,'LR = EXC_RETURN');Wm(st,0x20017FF8,0x20000BB8,'R7 of the task');R(st,{R7:[0x20017FF8,'frame pointer (MSP)']});},
+  h:[['r','w','MSP'],['a','w',0x20017FFC],['a','w',0x20017FF8],['r','w','R7']],fly:['r:LR','a:'+0x20017FFC,'0xFFFFFFFD',false]},
+'SysTick->CTRL; → read SYST_CTRL':{b:['i','d','ppb'],x:'R3 ← [0x08000144] = 0xE000E010;  R3 ← [0xE000E010] = 0x00010007',l:['LDR (PPB)','0xE000E010 → R3']},
+'bl xTaskGetSchedulerState':{b:['i'],x:'LR ← 0x08000135;  PC ← 0x08000AE0'},
+'Scheduler running? Checks two variables':{b:['i','d','s'],x:'[0x20017FF4] ← R7; MSP ← 0x20017FE8; R7 ← MSP;  R3 ← [0x20000740] = 1;  R3 ← [0x2000075C] = 0',l:['STR / LDR','0x20017FF4, 0x20000740, 0x2000075C'],
+  f:st=>{st.r.MSP=0x20017FE8;Wm(st,0x20017FF4,0x20017FF8,'R7 of SysTick_Handler');R(st,{R7:[0x20017FE8,'frame pointer (MSP)']});},
+  h:[['r','w','MSP'],['a','w',0x20017FF4],['r','w','R7'],['m','r','SR'],['m','r','SS']]},
+'return taskSCHEDULER_RUNNING (2)':{b:['i','s'],x:'[0x20017FEC] ← 2;  R0 ← 2;  R7 ← [0x20017FF4];  MSP ← 0x20017FF8;  PC ← LR',l:['STR / LDR','0x20017FEC, 0x20017FF4'],
+  f:st=>{Wm(st,0x20017FEC,2,'xReturn (local)');st.r.MSP=0x20017FF8;R(st,{R7:[0x20017FF8,'frame pointer (MSP)']});},
+  h:[['a','w',0x20017FEC],['a','r',0x20017FF4],['r','w','MSP'],['r','w','R7']]},
+'2 == 1? No → call xPortSysTickHandler':{b:['i'],x:'R3 − 1 ≠ 0 ⇒ beq not taken;  LR ← 0x0800013F;  PC ← 0x080010C8'},
+'xPortSysTickHandler prologue':{b:['i','s'],x:'[0x20017FF4] ← LR; [0x20017FF0] ← R7; MSP ← 0x20017FE8; R7 ← MSP',l:['STMDB (push)','R7, LR → 0x20017FF0'],
+  f:st=>{Wm(st,0x20017FF4,0x0800013F,'LR → SysTick_Handler');Wm(st,0x20017FF0,0x20017FF8,'R7 of SysTick_Handler');st.r.MSP=0x20017FE8;R(st,{R7:[0x20017FE8,'frame pointer (MSP)']});},
+  h:[['a','w',0x20017FF4],['a','w',0x20017FF0],['r','w','MSP'],['r','w','R7']]},
+'portDISABLE_INTERRUPTS(): BASEPRI = 0x50':{b:['i','s'],x:'R3 ← 0x50;  BASEPRI ← R3;  [0x20017FEC] ← R3',l:['STR','R3 → 0x20017FEC'],
+  f:st=>{Wm(st,0x20017FEC,0x50,'ulNewBASEPRI (local)');},h:[['a','w',0x20017FEC]]},
+'bl xTaskIncrementTick':{b:['i'],x:'LR ← 0x080010E7;  PC ← 0x08000704'},
+'Prologue, xSwitchRequired = pdFALSE':{b:['i','s'],x:'[0x20017FE4] ← LR; [0x20017FE0] ← R7; MSP ← 0x20017FC8; R7 ← MSP; [0x20017FDC] ← 0',l:['STMDB / STR','0x20017FE0, 0x20017FE4, 0x20017FDC'],
+  f:st=>{Wm(st,0x20017FE4,0x080010E7,'LR → xPortSysTickHandler');Wm(st,0x20017FE0,0x20017FE8,'R7 of xPortSysTickHandler');st.r.MSP=0x20017FC8;Wm(st,0x20017FDC,0,'xSwitchRequired (local)');R(st,{R7:[0x20017FC8,'frame pointer (MSP)']});},
+  h:[['a','w',0x20017FE4],['a','w',0x20017FE0],['a','w',0x20017FDC],['r','w','MSP'],['r','w','R7']]},
+'uxSchedulerSuspended == 0? Yes':{b:['i','d','s'],x:'R3 ← [0x2000075C] = 0;  Z = 1 ⇒ bne.w not taken',l:['LDR','0x2000075C → R3'],h:[['m','r','SS']]},
+'Line 2721: xConstTickCount = 3 + 1':{b:['i','d','s'],x:'R3 ← [0x20000738] = 3;  R3 ← R3 + 1 = 4;  [0x20017FD8] ← R3',l:['LDR / STR','0x20000738, 0x20017FD8'],
+  f:st=>{Wm(st,0x20017FD8,4,'xConstTickCount (local)');},h:[['a','w',0x20017FD8]]},
+'Line 2725: xTickCount = 4':{b:['i','d','s'],x:'R2 ← 0x20000738;  R3 ← [0x20017FD8] = 4;  [0x20000738] ← R3',l:['STR','R3 → 0x20000738'],h:[['a','r',0x20017FD8]]},
+'Line 2727: wrapped to 0? No':{b:['i','s'],x:'R3 ← [0x20017FD8] = 4;  4 ≠ 0 ⇒ PC ← 0x0800076E',l:['LDR','0x20017FD8 → R3'],h:[['a','r',0x20017FD8]]},
+'Line 2740: 4 ≥ 5? No':{b:['i','d','s'],x:'R3 ← [0x20000754] = 5;  R2 ← [0x20017FD8] = 4;  4 < 5 ⇒ PC ← 0x0800080C',l:['LDR','0x20000754, 0x20017FD8'],h:[['a','r',0x20017FD8]]},
+'Line 2823: other Ready task at this priority? No':{b:['i','d','s'],x:'R2 ← pxCurrentTCB→uxPriority = 24;  R3 ← items in pxReadyTasksLists[24] = 1;  1 ≤ 1 ⇒ skip',l:['LDR','pxCurrentTCB, pxReadyTasksLists']},
+'Line 2851: yield pending? No':{b:['i','d','s'],x:'R3 ← [0x20000748] = 0 (xYieldPending)  ⇒ PC ← 0x08000840',l:['LDR','0x20000748 → R3'],h:[['m','r','YP']]},
+'return pdFALSE (0)':{b:['i','s'],x:'R0 ← [0x20017FDC] = 0;  R7 ← [0x20017FE0];  PC ← [0x20017FE4];  MSP ← 0x20017FE8',l:['LDR / LDMIA (pop)','0x20017FDC, 0x20017FE0, 0x20017FE4'],
+  f:st=>{st.r.MSP=0x20017FE8;R(st,{R7:[0x20017FE8,'frame pointer (MSP)']});},
+  h:[['a','r',0x20017FDC],['a','r',0x20017FE0],['a','r',0x20017FE4],['r','w','MSP'],['r','w','R7']],fly:['a:'+0x20017FE4,'r:PC','0x080010E7',true]},
+'Line 497: pdFALSE → skip PendSV':{b:['i'],x:'R3 ← R0 = 0;  Z = 1 ⇒ PC ← 0x080010F4 (ICSR.PENDSVSET not written)'},
+'portENABLE_INTERRUPTS(): BASEPRI = 0':{b:['i','s'],x:'R3 ← 0;  [0x20017FE8] ← R3;  R3 ← [0x20017FE8];  BASEPRI ← R3',l:['STR / LDR','0x20017FE8'],
+  f:st=>{Wm(st,0x20017FE8,0,'ulNewMaskValue (local)');},h:[['a','w',0x20017FE8]]},
+'Return to SysTick_Handler':{b:['i','s'],x:'MSP ← R7 + 8;  R7 ← [0x20017FF0];  PC ← [0x20017FF4];  MSP ← 0x20017FF8',l:['LDMIA (pop)','0x20017FF0, 0x20017FF4'],
+  f:st=>{st.r.MSP=0x20017FF8;R(st,{R7:[0x20017FF8,'frame pointer (MSP)']});},
+  h:[['a','r',0x20017FF0],['a','r',0x20017FF4],['r','w','MSP'],['r','w','R7']],fly:['a:'+0x20017FF4,'r:PC','0x0800013F',true]},
+'pop {r7, pc}: PC ← 0xFFFFFFFD':{b:['i','s'],x:'R7 ← [0x20017FF8] = 0x20000BB8;  PC ← [0x20017FFC] = 0xFFFFFFFD;  MSP ← 0x20018000',l:['LDMIA (pop)','0x20017FF8, 0x20017FFC'],
+  f:st=>{st.r.MSP=MSP0;R(st,{R7:[0x20000BB8,'frame pointer of StartTask02']});},
+  h:[['a','r',0x20017FF8],['a','r',0x20017FFC],['r','w','MSP'],['r','w','R7']],fly:['a:'+0x20017FFC,'r:PC','0xFFFFFFFD',true]},
+'EXC_RETURN 0xFFFFFFFD → Thread mode, PSP':{b:[],x:'EXC_RETURN[3:0] = 0b1101 ⇒ Thread mode; CONTROL.SPSEL ← 1 (SP = PSP)'},
+'PSP + 32 → 0x20000BB8 (after the loads)':{b:[],x:'PSP ← PSP + 0x20 = 0x20000BB8'},
+'Task continues: adds r3, #1':{b:['i'],x:'R3 ← R3 + 1 = 0x0000A3F2'}
+};
+EV.forEach(e=>{
+  let a=AUG[e.t];
+  if(!a&&/^Store /.test(e.t)){const r=e.t.split(' ')[1]; a={b:['s'],x:`[${hx(fa(r))}] ← ${r} = ${hx(TASKR[r])}`,l:['STR (hardware)',`${r} → ${hx(fa(r))}`]};}
+  if(!a&&/^Read /.test(e.t)){const r=e.t.split(' ')[1]; a={b:['s'],x:`${r} ← [${hx(fa(r))}] = ${hx(TASKR[r])}`,l:['LDR (hardware)',`${hx(fa(r))} → ${r}`]};}
+  if(!a) throw new Error('no AUG for '+e.t);
+  e.b=a.b; e.x=a.x; e.l=a.l||null;
+  if(a.pa) e.p+=a.pa;
+  if(a.h) e.h=e.h.concat(a.h);
+  if(a.fly&&!e.fly) e.fly=a.fly;
+  if(a.f){const f0=e.f; e.f=st=>{f0(st); a.f(st);};}
+  const f1=e.f; e.f=st=>{f1(st); MSLOTS.forEach(x=>{const w=st.sl[x]; if(w.v!==null) w.c=x>=st.r.MSP?'mf':'stale';});};
+});
+
+const ST=[]; {let s=clone(init); EV.forEach(e=>{s=clone(s); e.f(s); ST.push(s);});}
+const first=STAGES.map((_,k)=>EV.findIndex(e=>e.s===k));
+
+/* ---------- render ---------- */
+$('stages').innerHTML=STAGES.map((n,k)=>`<button class="sg" data-k="${k}"><span>${k+1}. ${n}</span><span class="dots">${EV.map((e,i)=>e.s===k?`<i data-i="${i}"></i>`:'').join('')}</span></button>`).join('');
+document.querySelectorAll('.sg').forEach(b=>b.onclick=()=>{stop();if(!busy)go(first[+b.dataset.k],false);});
+const REGS=['R0','R1','R2','R3','R12','LR','PC','xPSR','PSP','BASEPRI'];
+function renderCode(e){
+  const [k,ex,pc,who,banner]=e.c, c=CODE[k];
+  $('who').className='who '+(who==='cpu'?'cpu':'hwa'); $('who').textContent=(who==='cpu'?'▶ ':'⚙ ')+banner;
+  $('file').innerHTML=`<b>${c.fn}</b> · ${c.f}`;
+  $('code').innerHTML=c.l.map(x=>{
+    if(x.t==='C') return `<div class="cl"><span class="n">${x.n}</span><span>${esc(x.s)}</span></div>`;
+    if(x.t==='G') return `<div class="gp">${esc(x.s)}</div>`;
+    const cls=ex.includes(x.a)?' ex':(x.a===pc?' pc':'');
+    return `<div class="al${cls}"><span class="ad">${x.a.toString(16).toUpperCase().padStart(8,'0')}</span><span>${esc(x.s)}</span><span class="cm">${x.c?'; '+esc(x.c):''}</span></div>`;}).join('');
+  const box=$('code'), hits=box.querySelectorAll('.ex,.pc');
+  if(hits.length){let a=hits[0]; const b=hits[hits.length-1]; let pv=a.previousElementSibling; while(pv&&!pv.classList.contains('cl')) pv=pv.previousElementSibling; if(pv&&b.offsetTop-pv.offsetTop<box.clientHeight-30) a=pv; box.scrollTop=(b.offsetTop+b.offsetHeight<=box.clientHeight)?0:a.offsetTop; return; const mid=(a.offsetTop+b.offsetTop+b.offsetHeight)/2; box.scrollTop=Math.max(0,mid-box.clientHeight/2);}
+}
+function render(i){
+  const s=ST[i], e=EV[i];
+  renderCode(e);
+  const row=(key,ad,k,sm,v)=>`<div class="mrow"${key?` data-m="${key}"`:''}><span class="ad">${ad}</span><span class="k">${k}${sm?`<small>${sm}</small>`:''}</span><span class="val">${v}</span></div>`;
+  const csr=(0x7|(s.m.CTRL<<16))>>>0, act=s.mode==='Handler'?15:0, icsr=(((s.m.PEND?1:0)<<26)|((s.m.PEND?15:0)<<12)|((act?1:0)<<11)|act)>>>0;
+  $('sec7').innerHTML=`<div class="sechd">Block 7 · Cortex-M4 internal peripherals <small>0xE000 0000 – 0xFFFF FFFF · PPB 0xE000 0000 – 0xE00F FFFF</small></div><div class="mrows">
+     ${row('PEND','0xE000ED04','ICSR','PENDSTSET = '+s.m.PEND+' (bit 26)',hx(icsr))}
+     ${row('VAL','0xE000E018','SYST_CVR','current value',s.m.VAL.toLocaleString('en-US'))}
+     ${row('LOAD','0xE000E014','SYST_RVR','reload value',s.m.LOAD.toLocaleString('en-US'))}
+     ${row('CTRL','0xE000E010','SYST_CSR','COUNTFLAG = '+s.m.CTRL+' (bit 16)',hx(csr))}</div>`;
+  $('sec2').innerHTML=`<div class="sechd">Block 2 · Peripherals <small>0x4000 0000 – 0x5FFF FFFF</small></div><div class="mrows">
+     ${row('','0x48000000','AHB2','GPIOA … ADC 0x50040000, RNG 0x50060800','')}
+     ${row('','0x40020000','AHB1','DMA1, RCC 0x40021000, FLASH regs 0x40022000','')}
+     ${row('','0x40010000','APB2','SYSCFG, EXTI 0x40010400 …','')}
+     ${row('','0x40000000','APB1','TIM6 0x40001000, USART2 0x40004400, PWR 0x40007000 …','')}</div>`;
+  $('sec1hd').innerHTML=`Block 1 · SRAM1 96 KB <small>0x2000 0000 – 0x2001 7FFF (block 0x2000 0000 – 0x3FFF FFFF)</small>`;
+  $('heaphd').innerHTML=`FreeRTOS heap (ucHeap, heap_4) <small>0x20000768 – 0x20001367 · 3 KB</small>`;
+  $('sram-glob').innerHTML=`
+     ${row('NEXT','0x20000754','xNextTaskUnblockTime','.bss',s.m.NEXT)}
+     ${row('XTICK','0x20000738','xTickCount','.bss',s.m.XTICK)}
+     ${row('I','0x20000008','i','.bss, global of main.c',hx(s.m.I))}`;
+  $('sec0').innerHTML=`<div class="sechd">Block 0 · Code <small>0x0000 0000 – 0x1FFF FFFF</small></div><div class="mrows">
+     ${row('','0x1FFF7000','OTP area','0x1FFF7000 – 0x1FFF73FF','')}
+     ${row('','0x10000000','SRAM2 32 KB','0x1000 0000 – 0x1000 7FFF','')}
+     ${row('','0x08000128','SysTick_Handler','Flash · code','')}
+     ${row('','0x08000074','StartTask02','Flash · code','')}
+     ${row('VEC','0x0800003C','vector 15 (SysTick)','Flash · vector table',hx(0x08000129))}
+     ${row('','0x08000000','vector 0: initial MSP','Flash 1 MB: 0x0800 0000 – 0x080F FFFF',hx(0x20018000))}
+     ${row('','0x00000000','boot alias','Flash mapped here by default (boot)','')}</div>`;
+  const used={0:'',1:'',2:'',7:''}, acc={};
+  const blkOf=k=>({CTRL:7,LOAD:7,VAL:7,PEND:7,I:1,XTICK:1,NEXT:1,VEC:0})[k];
+  e.h.forEach(([k,m,key])=>{let b=null; if(k==='m') b=blkOf(key); if(k==='a') b=1; if(b!=null) acc[b]=(acc[b]==='W'||m==='w')?'W':'R';});
+  if(e.c[3]==='cpu') acc[0]=acc[0]||'R';
+  const BL=[[7,'0xE000 0000','Cortex-M4 internal peripherals','sec7'],[6,'0xC000 0000','Block 6',null],[5,'0xA000 0000','FMC + QUADSPI registers',null],[4,'0x8000 0000','FMC bank 3 · QUADSPI 0x9000 0000',null],[3,'0x6000 0000','FMC bank 1',null],[2,'0x4000 0000','Peripherals','sec2'],[1,'0x2000 0000','SRAM','sec1'],[0,'0x0000 0000','Code','sec0']];
+  $('ladder').innerHTML=BL.map(([n,ad,name,sec])=>`<button class="blk8 ${acc[n]||''}${sec?' used':''}" ${sec?`data-sec="${sec}"`:'disabled'}><span class="ba">${ad}</span><span class="bn">${n} · ${name}</span><span class="bt8">${acc[n]==='W'?'WRITE':acc[n]==='R'?(n===0&&e.c[3]==='cpu'&&!e.h.some(x=>x[2]==='VEC')?'FETCH':'READ'):''}</span></button>`).join('')+'<div class="gap">8 × 512 MB, high address on top</div>';
+  $('ladder').querySelectorAll('[data-sec]').forEach(b=>b.onclick=()=>$(b.dataset.sec).scrollIntoView({block:'start',behavior:'smooth'}));
+  {const val=r=>r==='BASEPRI'?'0x'+s.r[r].toString(16).toUpperCase().padStart(2,'0'):s.u[r]?(r==='xPSR'?'0x?'+hx(s.r[r]).slice(3):'UNKNOWN'):hx(s.r[r]);
+   const box=r=>`<div class="reg${r===(s.mode==='Handler'?'MSP':'PSP')?' sp':''}" data-r="${r}" title="${esc(s.n[r]||'')}"><span class="n">${r}</span><span class="val">${val(r)}</span></div>`;
+   const x=s.r.xPSR>>>0, uf=!!s.u.xPSR, fb=(b)=>uf&&b!==24?'?':String((x>>>b)&1);
+   const hl=e.h.filter(q=>q[0]==='r'&&q[2]!=='R7').map(q=>q[2]).filter((v,k,a)=>a.indexOf(v)===k);
+   $('regs').innerHTML=`<div class="rgt">General-purpose (in the frame)</div>
+     <div class="rgrid">${['R0','R1','R2','R3','R12'].map(box).join('')}</div>
+     <div class="rgt">Special (SP R13 · LR R14 · PC R15)</div>
+     <div class="rgrid">${['MSP','PSP','LR','PC','xPSR','BASEPRI'].map(box).join('')}</div>
+     <div class="flags" data-r="xPSR"><div class="ft">xPSR flags</div>
+       <div class="fr"><span>N<b>${fb(31)}</b></span><span>Z<b>${fb(30)}</b></span><span>C<b>${fb(29)}</b></span><span>V<b>${fb(28)}</b></span><span>T<b>${fb(24)}</b></span><span>IPSR<b>${x&0x1FF}</b></span></div>
+       <div class="fs">negative, zero, carry, overflow, Thumb</div></div>
+     <div class="rnote">${hl.length?(()=>{const g={}; hl.forEach(r=>{const n=s.n[r]||''; (g[n]=g[n]||[]).push(r);}); return Object.entries(g).map(([n,rs])=>`<b>${rs.join(', ')}</b>: ${esc(n)}`).join(' · ');})():'No register changes in this event.'}</div>
+     <div class="rnote">Active SP in teal. Not shown: R4–R11 (hardware does not stack them).</div>`;}
+  $('mode').className='pill '+(s.mode==='Handler'?'p-handler':'p-thread');
+  $('mode').textContent=s.mode==='Handler'?'Handler mode · SP = MSP':'Thread mode · SP = PSP';
+  const stk=$('stack'); stk.querySelectorAll('.slot').forEach(x=>x.remove());
+  stk.insertAdjacentHTML('beforeend',SLOTS.map(a=>{const w=s.sl[a];return `<div class="slot ${w.c}" data-a="${a}"><span class="a">${hx(a)}</span><span class="v"><span class="val">${w.v===null?'—':hx(w.v)}</span><small>${w.n}</small></span></div>`;}).join(''));
+  const ms=$('mstack'); ms.querySelectorAll('.slot,.mtop').forEach(x=>x.remove());
+  const slotNote=w=>w.c==='stale'&&!/^free/.test(w.n)?'free (old '+w.n+')':w.n;
+  ms.insertAdjacentHTML('beforeend',`<div class="mtop"><span class="a">0x20018000</span><span><b>_estack</b> = initial MSP (vector 0). Main stack: handler code. Grows down.</span></div>`+MSLOTS.map(a=>{const w=s.sl[a];return `<div class="slot ${w.c}" data-a="${a}"><span class="a">${hx(a)}</span><span class="v"><span class="val">${w.v===null?'—':hx(w.v)}</span><small>${slotNote(w)}</small></span></div>`;}).join(''));
+  placeMarks(i);
+  e.h.forEach(([k,m,key])=>{const el=sel(k+':'+key); if(el) el.classList.add(m==='w'?'hw':'hr');});
+  {const d=$('detail'), dr=d.getBoundingClientRect();
+   let els=e.h.map(([k,m,key])=>(k==='m'||k==='a')?sel(k+':'+key):null).filter(Boolean);
+   if(!els.length&&e.s>=2&&e.s<=6) els=[$('stack')];
+   els=els.filter(x=>d.contains(x));
+   const fl=e.fly?[sel(e.fly[0]),sel(e.fly[1])].filter(x=>x&&d.contains(x)):[];
+   if(fl.length&&els.length>1){const t=Math.min(...els.map(x=>x.getBoundingClientRect().top)), bt=Math.max(...els.map(x=>x.getBoundingClientRect().bottom)); if(bt-t>d.clientHeight) els=fl;}
+   if(els.length){const top=Math.min(...els.map(x=>x.getBoundingClientRect().top)), bot=Math.max(...els.map(x=>x.getBoundingClientRect().bottom));
+     if(top<dr.top||bot>dr.bottom){ if(bot-top<=d.clientHeight) d.scrollTop+=(top-dr.top)-(d.clientHeight-(bot-top))/2; else d.scrollTop+=(top-dr.top)-8; }}}
+  $('ev-no').textContent=`Stage ${e.s+1} · ${STAGES[e.s]} · event ${i+1} of ${EV.length}`;
+  $('ev-t').textContent=e.t; $('ev-p').innerHTML=e.p;
+  document.querySelectorAll('.sg').forEach(b=>b.classList.toggle('cur',+b.dataset.k===e.s));
+  document.querySelectorAll('.sg .dots i').forEach(d=>{const k=+d.dataset.i;d.className=k===i?'now':k<i?'on':'';});
+  $('prev').disabled=i===0; $('next').textContent=i===EV.length-1?'Restart ↺':'Next event ▶';
+}
+function sel(key){const k=key.slice(0,1), v=key.slice(2);
+  if(k==='r') return document.querySelector(`.reg[data-r="${v}"]`);
+  if(k==='a') return document.querySelector(`.slot[data-a="${v}"]`);
+  if(k==='m') return document.querySelector(`.mrow[data-m="${v}"]`);}
+function placeMarks(i){
+  const s=ST[i], stk=$('stack');
+  const put=(el,addr)=>{const sl=stk.querySelector(`.slot[data-a="${addr}"]`); if(sl) el.style.top=(sl.offsetTop+sl.offsetHeight/2-10)+'px';};
+  put($('mk-psp'),s.r.PSP);
+  {const ms=$('mstack'), m=$('mk-msp'), tg=s.r.MSP===MSP0?ms.querySelector('.mtop'):ms.querySelector(`.slot[data-a="${s.r.MSP}"]`); if(tg) m.style.top=(tg.offsetTop+tg.offsetHeight/2-10)+'px';
+   m.classList.toggle('off',s.mode!=='Handler'); $('mk-psp').classList.toggle('off',s.mode==='Handler');}
+  $('mk-fr').hidden=!s.frame; if(s.frame) put($('mk-fr'),s.frame);
+}
+
+
+/* ---------- 32-bit register explorer (definitions from ARMv7-M ARM DDI0403D) ---------- */
+const ARMDOC='https://developer.arm.com/documentation/ddi0403/d/';
+const DOC={
+ core:[ 'ARMv7-M ARM: The ARM core registers / ARM core registers',ARMDOC+'Application-Level-Architecture/Application-Level-Programmers--Model/Registers-and-execution-state/ARM-core-registers'],
+ sp:['ARMv7-M ARM: The SP registers (SP bits [1:0] RAZ/WI)',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/Registers/The-ARM-core-registers'],
+ bl:['ARMv7-M ARM: BL — LR = next_instr_addr<31:1>:\'1\'',ARMDOC+'Application-Level-Architecture/Instruction-Details/Alphabetical-list-of-ARMv7-M-Thumb-instructions/BL'],
+ xpsr:['ARMv7-M ARM: xPSR (Figure 8.1) and APSR flags',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/Registers/The-special-purpose-program-status-registers--xPSR'],
+ apsr:['ARMv7-M ARM: The Application Program Status Register (APSR)',ARMDOC+'Application-Level-Architecture/Application-Level-Programmers--Model/Registers-and-execution-state/The-Application-Program-Status-Register--APSR-'],
+ mask:['ARMv7-M ARM: The special-purpose mask registers (BASEPRI 8-bit)',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/Registers/The-special-purpose-mask-registers'],
+ prio:['ARMv7-M ARM: Exception priorities (unimplemented low-order bits RAZ)',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/ARMv7-M-exception-model/Exception-priorities-and-preemption'],
+ st:['ST stm32l476xx.h: __NVIC_PRIO_BITS = 4','https://github.com/STMicroelectronics/cmsis-device-l4/blob/master/Include/stm32l476xx.h'],
+ exr:['ARMv7-M ARM: Exception return behavior (EXC_RETURN)',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/ARMv7-M-exception-model/Exception-return-behavior'],
+ entry:['ARMv7-M ARM: Exception entry behavior (PushStack, ExceptionTaken)',ARMDOC+'System-Level-Architecture/System-Level-Programmers--Model/ARMv7-M-exception-model/Exception-entry-behavior'],
+ csr:['ARMv7-M ARM: SYST_CSR',ARMDOC+'System-Level-Architecture/System-Address-Map/The-system-timer--SysTick/SysTick-Control-and-Status-Register--SYST-CSR'],
+ rvr:['ARMv7-M ARM: SYST_RVR',ARMDOC+'System-Level-Architecture/System-Address-Map/The-system-timer--SysTick/SysTick-Reload-Value-Register--SYST-RVR'],
+ cvr:['ARMv7-M ARM: SYST_CVR',ARMDOC+'System-Level-Architecture/System-Address-Map/The-system-timer--SysTick/SysTick-Current-Value-Register--SYST-CVR'],
+ icsr:['ARMv7-M ARM: ICSR',ARMDOC+'System-Level-Architecture/System-Address-Map/System-Control-Space--SCS-/Interrupt-Control-and-State-Register--ICSR'],
+ m4:['Cortex-M4 TRM: vector bit[0] loads EPSR.T','https://developer.arm.com/documentation/100166/0001/Programmers-Model/Exceptions/Exception-handling-and-prioritization']
+};
+const F=(hi,lo,name,desc,c)=>({hi,lo,name,desc,c});
+const bits=(v,hi,lo)=>((v>>>lo)&(hi-lo===31?0xFFFFFFFF:((1<<(hi-lo+1))-1)))>>>0;
+const fmtF=(v,hi,lo)=>{const x=bits(v,hi,lo), w=hi-lo+1; return w<=4?'0b'+x.toString(2).padStart(w,'0'):'0x'+x.toString(16).toUpperCase();};
+function defData(title,sub,v,meaning,src){return {title,sub,v,fields:[F(31,0,'DATA',()=>meaning,0)],src:[src||DOC.core]};}
+function defAddr(title,sub,v,meaning){return {title,sub,v,fields:[F(31,1,'ADDRESS[31:1]',x=>meaning+' Address = '+hx(v&~1)+'.',0),F(0,0,'bit 0',x=>x?'1: Thumb bit set by BL (LR = next_instr_addr<31:1>:1).':'0: instruction addresses are halfword aligned, bit 0 is always 0.',1)],src:[DOC.core,DOC.bl]};}
+function defExcRet(title,sub,v){return {title,sub,v,fields:[
+  F(31,28,'0xF',x=>x===0xF?'0xF marks an EXC_RETURN value (only in Handler mode).':'',0),
+  F(27,5,'Reserved',()=>'Reserved, SBOP (should be one).','r'),
+  F(4,4,'Frame type',x=>x?'1: basic 8-word frame, no FP state space (CONTROL.FPCA was 0).':'0: extended frame with FP state.',1),
+  F(3,0,'Return',x=>({0b0001:'0001: return to Handler mode, Main stack',0b1001:'1001: return to Thread mode, Main stack',0b1101:'1101: return to Thread mode, Process stack (PSP)'})[x]||'reserved value',2)],src:[DOC.exr,DOC.entry]};}
+function defXPSR(title,sub,v,unkFlags,stacked){
+  const fl=(n,txt)=>x=>unkFlags?'UNKNOWN on exception entry (ExceptionTaken: APSR UNKNOWN).':(x?'1: ':'0: ')+txt;
+  return {title,sub,v,unk:unkFlags?[31,30,29,28,27,19,18,17,16]:[],fields:[
+  F(31,31,'N',fl('N','negative flag = bit 31 of the result.'),0),F(30,30,'Z',fl('Z','zero flag, 1 if the result is zero.'),0),
+  F(29,29,'C',fl('C','carry flag (unsigned overflow / no borrow).'),0),F(28,28,'V',fl('V','overflow flag (signed overflow).'),0),
+  F(27,27,'Q',fl('Q','saturation flag.'),0),F(26,25,'ICI/IT',()=>'EPSR: IT[1:0] / ICI state for an interrupted IT block or LDM/STM. 0 here.',1),
+  F(24,24,'T',x=>x?'1: Thumb state (must always be 1 on Cortex-M).':'0: INVSTATE UsageFault on next instruction.',1),
+  F(23,20,'Reserved',()=>'Reserved.','r'),F(19,16,'GE[3:0]',x=>unkFlags?'UNKNOWN on exception entry.':'APSR.GE flags (DSP extension, SIMD instructions).',0),
+  F(15,10,'ICI/IT',()=>'EPSR: IT[7:2] / ICI state. 0 here.',1),
+  F(9,9,stacked?'Align':'Reserved',x=>stacked?(x?'1: a padding word was added to 8-byte-align the frame.':'0: no padding word (PushStack: frameptralign).'):'Reserved in the live xPSR.',stacked?2:'r'),
+  F(8,0,'IPSR',x=>x?`Exception number ${x}${x===15?' = SysTick':x===14?' = PendSV':''} (Handler mode).`:'0 = Thread mode (no exception running).',2)],src:[DOC.xpsr,DOC.apsr,DOC.entry]};}
+function defSP(title,v,sub){return {title,sub:sub||'Process Stack Pointer (banked SP, R13): used by tasks in Thread mode',v,fields:[F(31,2,'Stack address [31:2]',()=>'Top of the stack in use = '+hx(v)+'. Full-descending: points at the last word pushed.',0),F(1,0,'[1:0]',()=>'RAZ/WI: SP is always word aligned.','r')],src:[DOC.sp,DOC.entry]};}
+function defBASEPRI(v){return {title:'BASEPRI',sub:'Base priority mask (8-bit special register, read with MRS)',v,fields:[
+  F(31,8,'—',()=>'Not part of BASEPRI (8-bit register); reads 0 through MRS.','r'),
+  F(7,4,'BASEPRI[7:4]',x=>x?`Mask level ${x}: exceptions with priority value ≥ ${x} (0x${(x<<4).toString(16).toUpperCase()}) cannot preempt.`:'0 = masking disabled.',0),
+  F(3,0,'[3:0]',()=>'Not implemented on STM32L4 (4 priority bits), read as zero.','r')],src:[DOC.mask,DOC.prio,DOC.st]};}
+function defCSR(v){return {title:'SYST_CSR',sub:'0xE000E010 · SysTick Control and Status Register',v,fields:[
+  F(31,17,'Reserved',()=>'Reserved.','r'),F(16,16,'COUNTFLAG',x=>x?'1: counted to 0 since last read. Cleared by reading SYST_CSR or writing SYST_CVR.':'0: has not counted to 0 since last read.',0),
+  F(15,3,'Reserved',()=>'Reserved.','r'),F(2,2,'CLKSOURCE',x=>x?'1: processor clock.':'0: external reference clock.',1),
+  F(1,1,'TICKINT',x=>x?'1: counting to 0 makes SysTick pending.':'0: no exception on count to 0.',2),F(0,0,'ENABLE',x=>x?'1: counter running.':'0: counter disabled.',1)],src:[DOC.csr]};}
+function defRVR(v){return {title:'SYST_RVR',sub:'0xE000E014 · SysTick Reload Value Register',v,fields:[F(31,24,'Reserved',()=>'Reserved, RAZ/WI.','r'),F(23,0,'RELOAD',x=>`Loaded into SYST_CVR when the counter reaches 0: ${x} → period ${x+1} clocks.`,0)],src:[DOC.rvr]};}
+function defCVR(v){return {title:'SYST_CVR',sub:'0xE000E018 · SysTick Current Value Register',v,fields:[F(31,24,'(unsupported)',()=>'Unsupported bits read as zero (24-bit counter).','r'),F(23,0,'CURRENT',x=>`Current counter value: ${x}. Any write clears it to 0.`,0)],src:[DOC.cvr,DOC.rvr]};}
+function defICSR(v){return {title:'ICSR',sub:'0xE000ED04 · Interrupt Control and State Register',v,fields:[
+  F(31,31,'NMIPENDSET',x=>x?'1: NMI active.':'0: NMI inactive.',0),F(30,29,'Reserved',()=>'Reserved.','r'),
+  F(28,28,'PENDSVSET',x=>x?'1: PendSV pending.':'0: PendSV not pending.',1),F(27,27,'PENDSVCLR',()=>'Write-only: write 1 to clear PendSV pending.','r'),
+  F(26,26,'PENDSTSET',x=>x?'1: SysTick pending.':'0: SysTick not pending.',0),F(25,25,'PENDSTCLR',()=>'Write-only: write 1 to clear SysTick pending.','r'),
+  F(24,24,'Reserved',()=>'Reserved.','r'),F(23,23,'ISRPREEMPT',x=>x?'1: will service a pending exception on exit from debug halt.':'0: will not service a pending exception on exit from debug halt.',1),
+  F(22,22,'ISRPENDING',x=>x?'1: an external (NVIC) interrupt is pending.':'0: no external interrupt pending.',1),F(21,21,'Reserved',()=>'Reserved.','r'),
+  F(20,12,'VECTPENDING',x=>x?`Highest-priority pending exception = ${x}${x===15?' (SysTick)':''}.`:'0: nothing pending.',2),
+  F(11,11,'RETTOBASE',x=>'In Handler mode: 1 = no other active exception. In Thread mode: unknown.',0),F(10,9,'Reserved',()=>'Reserved.','r'),
+  F(8,0,'VECTACTIVE',x=>x?`Executing exception number ${x}${x===15?' (SysTick)':''}. Same as IPSR.`:'0: Thread mode.',2)],src:[DOC.icsr]};}
+
+function bxOpen(kind,key){
+  const s=ST[cur]; let d=null;
+  if(kind==='r'){
+    const v=s.r[key], unk=s.u[key];
+    if(['R0','R1','R2','R3','R12'].includes(key)){
+      if(unk) d={title:key,sub:'General-purpose register',v:null,fields:[F(31,0,'DATA',()=>'UNKNOWN: ExceptionTaken() sets R0–R3 and R12 to UNKNOWN on exception entry. The task value is safe in the stack frame.','r')],src:[DOC.entry]};
+      else d=defData(key,'General-purpose register (32-bit, no fixed fields)',v,`Plain 32-bit data. Here: ${s.n[key]||'value used by the code'}.`);
+    } else if(key==='LR') d=(v>>>28)===0xF?defExcRet('LR = EXC_RETURN','Link Register (R14) holding EXC_RETURN',v):defAddr('LR','Link Register (R14): return address',v,'Return address written by BL.');
+    else if(key==='PC') d=(v>>>28)===0xF?defExcRet('PC ← EXC_RETURN','Value loaded into PC triggers exception return',v):defAddr('PC','Program Counter (R15)',v,'Address of the next instruction.');
+    else if(key==='xPSR') d=defXPSR('xPSR','Combined APSR + EPSR + IPSR',v,!!unk,false);
+    else if(key==='PSP') d=defSP('PSP',v);
+    else if(key==='MSP') d=defSP('MSP',v,'Main Stack Pointer (banked SP, R13): used in Handler mode');
+    else if(key==='BASEPRI') d=defBASEPRI(v);
+  } else if(kind==='m'){
+    const m=s.m;
+    if(key==='CTRL') d=defCSR(0x7|(m.CTRL<<16));
+    else if(key==='LOAD') d=defRVR(m.LOAD);
+    else if(key==='VAL') d=defCVR(m.VAL);
+    else if(key==='PEND'){const act=s.mode==='Handler'?15:0; d=defICSR(((m.PEND?1:0)<<26)|((m.PEND?15:0)<<12)|((act?1:0)<<11)|act);}
+    else if(key==='I') d=defData('i','0x20000008 · global int (SRAM, .bss)',m.I,'Signed 32-bit int, loop counter of StartTask02.');
+    else if(key==='XTICK') d=defData('xTickCount','0x20000738 · FreeRTOS global TickType_t (uint32_t)',m.XTICK,'Number of SysTick ticks since the scheduler started.');
+    else if(key==='NEXT') d=defData('xNextTaskUnblockTime','0x20000754 · FreeRTOS global TickType_t',m.NEXT,'Tick at which the next delayed task must wake.');
+    else if(key==='VEC') d={title:'Vector 15 (SysTick)',sub:'0x0800003C · vector table entry',v:0x08000129,fields:[F(31,1,'Handler address[31:1]',()=>'PC = entry AND 0xFFFFFFFE = 0x08000128 (SysTick_Handler).',0),F(0,0,'T',x=>'1: loaded into EPSR.T on exception entry. Must be 1.',1)],src:[DOC.entry,DOC.m4]};
+  } else if(kind==='a'){
+    const a=+key, w=s.sl[a], stk=a>=0x20017000?'main stack (MSP)':'myTask02 stack (PSP)'; if(!w||w.v===null){d={title:'Stack word '+hx(a),sub:stk+' · SRAM1',v:null,fields:[F(31,0,'free',()=>'Not written yet in this simulation.','r')],src:[DOC.entry]};}
+    else if(/xPSR/.test(w.n)) d=defXPSR('Stacked xPSR','word at '+hx(a)+' · '+w.n,w.v,false,true);
+    else if((w.v>>>28)===0xF) d=defExcRet('Saved EXC_RETURN',hx(a)+' · '+w.n,w.v);
+    else if(/PC\b/.test(w.n)) d=defAddr('Stacked PC',hx(a)+' · '+w.n,w.v,'ReturnAddress(): next instruction to run after the interrupt.');
+    else d=defData('Stack word',hx(a)+' · '+stk+' · '+w.n,w.v,'32-bit word on the '+stk+': '+w.n+'.',DOC.entry);
+  }
+  if(!d) return;
+  $('bx-t').textContent=d.title; $('bx-sub').textContent=d.sub;
+  $('bx-v').innerHTML=d.v===null?'UNKNOWN':`${hx(d.v)}<small>= ${(d.v>>>0).toLocaleString('en-US')} decimal</small>`;
+  const cell=b=>d.fields.find(f=>b<=f.hi&&b>=f.lo);
+  const cls=f=>f.c==='r'?'cr':'c'+f.c;
+  let g='';
+  const fi=b=>d.fields.indexOf(cell(b));
+  for(let b=31;b>=0;b--) g+=`<div class="bn${b%4===3&&b!==31?' nib':''}" data-fi="${fi(b)}">${b}</div>`;
+  for(let b=31;b>=0;b--){const f=cell(b), unk=d.v===null||(d.unk||[]).includes(b), x=unk?'?':((d.v>>>b)&1); g+=`<div class="bv ${cls(f)}${x===1?' one':''}${b%4===3&&b!==31?' nib':''}" data-fi="${fi(b)}">${x}</div>`;}
+  d.fields.forEach((f,k)=>{g+=`<div class="fl ${cls(f)}" data-fi="${k}" style="grid-column:${32-f.hi} / ${33-f.lo}">${esc(f.name)}</div>`;});
+  $('bx-g').innerHTML=g;
+  $('bx-tb').innerHTML=d.fields.map((f,k)=>{const unk=d.v===null||(d.unk||[]).includes(f.hi); const x=d.v===null?0:bits(d.v,f.hi,f.lo);
+    return `<tr data-fi="${k}"><td>${f.hi===f.lo?f.hi:f.hi+':'+f.lo}</td><td>${esc(f.name)}</td><td>${unk?'?':fmtF(d.v,f.hi,f.lo)}</td><td>${esc(f.desc(x))}</td></tr>`;}).join('');
+  $('bx-src').innerHTML='Source: '+d.src.map(x=>`<a href="${x[1]}" target="_blank" rel="noopener">${esc(x[0])}</a>`).join(' · ');
+  $('bx').hidden=false; $('bx-x').focus();
+}
+/* hover sync: bit cells, field label and table row of the same field light up together */
+function bxHi(k){document.querySelectorAll('#bx [data-fi]').forEach(x=>x.classList.toggle('fhi',k!==null&&x.dataset.fi===k));}
+$('bx').addEventListener('mouseover',e=>{const t=e.target.closest('#bx [data-fi]'); bxHi(t?t.dataset.fi:null);});
+$('bx').addEventListener('mouseleave',()=>bxHi(null));
+function bxClose(){ $('bx').hidden=true; }
+$('bx-x').onclick=bxClose;
+$('bx').addEventListener('click',e=>{if(e.target===$('bx')) bxClose();});
+document.addEventListener('click',e=>{
+  if(!$('bx').hidden) return;
+  const r=e.target.closest('.reg[data-r],.flags[data-r]'), m=e.target.closest('.mrow[data-m]'), a=e.target.closest('.slot[data-a]');
+  if(r) bxOpen('r',r.dataset.r); else if(m) bxOpen('m',m.dataset.m); else if(a) bxOpen('a',a.dataset.a);
+});
+
+let cur=0, busy=false, timer=null;
+function fly(e){
+  return new Promise(res=>{
+    if(!e.fly||matchMedia('(prefers-reduced-motion: reduce)').matches) return res();
+    const [s,d,txt,back]=e.fly, a=sel(s), b=sel(d); if(!a||!b) return res();
+    const bv=b.querySelector('.val'); if(bv) bv.style.visibility='hidden';
+    const ra=a.getBoundingClientRect(), rb=b.getBoundingClientRect();
+    const g=document.createElement('div'); g.className='ghost'+(back?' back':''); g.textContent=txt;
+    const h=Math.max(20,Math.min(ra.height-4,26));
+    Object.assign(g.style,{left:(ra.left+ra.width/2-56)+'px',top:(ra.top+ra.height/2-h/2)+'px',width:'112px',height:h+'px'});
+    document.body.appendChild(g);
+    const an=g.animate([{transform:'translate(0,0)'},{transform:`translate(${(rb.left+rb.width/2)-(ra.left+ra.width/2)}px,${(rb.top+rb.height/2)-(ra.top+ra.height/2)}px)`}],{duration:750,easing:'cubic-bezier(.4,.1,.2,1)',fill:'forwards'});
+    an.onfinish=()=>{g.remove(); if(bv) bv.style.visibility=''; res();};
+  });
+}
+async function go(i,anim){cur=i; render(i); if(anim){busy=true; await fly(EV[i]); busy=false;}}
+function next(){if(busy)return; if(cur===EV.length-1){go(0,false);return;} go(cur+1,true);}
+function prev(){if(busy||cur===0)return; go(cur-1,false);}
+function stop(){clearTimeout(timer);timer=null;$('play').textContent='Run';}
+function run(){timer=setTimeout(()=>{if(cur===EV.length-1){stop();return;} next(); run();},2400);}
+$('next').onclick=()=>{stop();next();};
+$('prev').onclick=()=>{stop();prev();};
+$('play').onclick=()=>{if(timer){stop();return;} if(cur===EV.length-1)go(0,false); $('play').textContent='Pause'; run();};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){bxClose();return;} if(!$('bx').hidden) return; if(e.key==='ArrowRight'){stop();next();} if(e.key==='ArrowLeft'){stop();prev();}});
+addEventListener('resize',()=>placeMarks(cur));
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>placeMarks(cur));
+go(0,false);
+})();
+</script>
+
+</body></html>
